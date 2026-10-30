@@ -1,0 +1,12 @@
+.pio/
+.tools/
+.build/
+__pycache__/
+*.pyc
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+include/gateway_config.local.h
+config/calibration.local.json
+reports/bench_results.local.csv
+

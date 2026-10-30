@@ -1,0 +1,10 @@
+{
+  "calibration_id": "SIMULATED-400mm-40mm-v1",
+  "purpose": "SIMULATED DATA ONLY; not a calibration of physical bins",
+  "nodes": {
+    "1": {"calibrated": true, "sensors": [{"empty_mm": 400, "full_mm": 40}, {"empty_mm": 400, "full_mm": 40}]},
+    "2": {"calibrated": true, "sensors": [{"empty_mm": 400, "full_mm": 40}, {"empty_mm": 400, "full_mm": 40}]},
+    "3": {"calibrated": true, "sensors": [{"empty_mm": 400, "full_mm": 40}, {"empty_mm": 400, "full_mm": 40}]}
+  }
+}
+

@@ -1,0 +1,15 @@
+{
+  "calibration_id": "replace-with-measured-calibration-v1",
+  "purpose": "EXAMPLE ONLY; measure each sensor and set calibrated=true before using fill estimates",
+  "stale_after_ms": 15000,
+  "disagreement_percent": 20,
+  "jump_percent": 25,
+  "confirmation_cycles": 3,
+  "candidate_tolerance_percent": 8,
+  "nodes": {
+    "1": {"calibrated": false, "sensors": [{"empty_mm": 400, "full_mm": 40}, {"empty_mm": 400, "full_mm": 40}]},
+    "2": {"calibrated": false, "sensors": [{"empty_mm": 400, "full_mm": 40}, {"empty_mm": 400, "full_mm": 40}]},
+    "3": {"calibrated": false, "sensors": [{"empty_mm": 400, "full_mm": 40}, {"empty_mm": 400, "full_mm": 40}]}
+  }
+}
+
