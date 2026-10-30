@@ -1,0 +1,2 @@
+# Optional offline report generation only; the operations server stays dependency-free.
+matplotlib==3.10.7
