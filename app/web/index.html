@@ -7,8 +7,12 @@
   <title>Garbage Collectors · Operasyon Merkezi</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23147d5a'/%3E%3Cpath d='M12 13h16M17 10h6M15 17l1 13h8l1-13M19 18v8M22 18v8' fill='none' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/vendor/leaflet.css">
+  <link rel="stylesheet" href="/vendor/maplibre-gl.css">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/scene.css">
   <script defer src="/vendor/leaflet.js"></script>
+  <script defer src="/vendor/maplibre-gl.js"></script>
+  <script defer src="/map-scene.js"></script>
   <script defer src="/app.js"></script>
 </head>
 <body>
@@ -57,13 +61,13 @@
   </header>
   <main id="main">
     <div id="connectionBanner" class="banner danger" hidden>Sunucuya ulaşılamıyor. Ekrandaki bilgiler son alınan veridir; yeniden bağlanılıyor.</div>
-    <div class="page-heading"><div><div class="eyebrow"><span class="tiny-dot"></span> KTÜ KANUNİ KAMPÜSÜ</div><h1 id="pageTitle">Toplama operasyonu</h1><p id="pageSubtitle">Kutuları izleyin. İhtiyacı görün. Seferinizi planlayın.</p></div><div class="heading-meta"><span class="badge outline">MVP / DEMO</span><span id="clockLabel">—</span></div></div>
+    <div class="page-heading"><div><div class="eyebrow"><span class="tiny-dot"></span> KTÜ KANUNİ KAMPÜSÜ</div><h1 id="pageTitle">Şehrin ritmini yakala.</h1><p id="pageSubtitle">Kutuları izleyin. İhtiyacı görün. Seferinizi planlayın.</p></div><div class="heading-meta"><span class="badge outline">MVP / DEMO</span><span id="clockLabel">—</span></div></div>
     <section class="metrics" id="metrics" aria-label="Operasyon özeti"></section>
     <section class="map-workspace" id="mapWorkspace">
       <div class="map-card card">
         <div class="card-heading map-heading"><div><h2>Bölge görünümü <span class="count-pill" id="mapCount">25 kutu</span></h2><p>Kanuni Kampüsü ve çevresi</p></div><button class="icon-button" id="fitMap" title="Tüm kutuları göster" aria-label="Haritayı bölgeye ortala"><svg><use href="#i-pin"/></svg></button></div>
         <div class="map-filters"><div class="segmented" role="group" aria-label="Veri kaynağı filtresi"><button data-source="all" class="active">Tümü</button><button data-source="live"><span class="live-dot"></span>Canlı sensör</button><button data-source="simulated">Simülasyon</button></div><select id="fillFilter" aria-label="Doluluk filtresi"><option value="all">Tüm doluluklar</option><option value="red">%80 ve üzeri</option><option value="yellow">%50–79</option><option value="green">%50 altı</option><option value="gray">Veri belirsiz</option></select></div>
-        <div class="map-container"><div id="map" aria-label="Çöp kutuları ve toplama rotası haritası"></div><div class="map-notice" id="tileNotice" hidden>Harita zemini yüklenemedi. Noktalar yaklaşık konumlarında gösteriliyor.</div><div class="map-legend"><span><i class="green"></i>Düşük</span><span><i class="yellow"></i>Orta</span><span><i class="red"></i>Yüksek</span><span><i class="gray"></i>Belirsiz</span></div></div>
+        <div class="map-container"><div class="scene-hud"><span class="scene-kicker">OPERASYON / 3D</span><strong>KANUNİ KAMPÜSÜ</strong><span id="sceneStatus">YEREL OSM ŞEHİR MODELİ</span></div><div class="scene-controls" role="group" aria-label="Harita kamera kontrolleri"><button data-camera="3d" aria-pressed="true">3D</button><button data-camera="2d" aria-pressed="false">Üstten</button><button data-camera="light" title="Işığı değiştir">◐ Işık</button><button data-camera="relief" aria-pressed="false">Arazi</button><button data-camera="tour" aria-pressed="false">▶ Uçuş</button><button data-camera="export">↓ PNG</button><button data-camera="fallback">2D yedek</button></div><div class="scene-coordinate"><span class="scene-live-dot"></span><span id="sceneStopCount">25 NOKTA · DOLULUK TAKİBİ</span><span>40.9916° N / 39.7723° E</span></div><div id="map" aria-label="Çöp kutuları ve toplama rotası haritası"></div><div class="map-notice" id="tileNotice" hidden>Harita zemini yüklenemedi. Noktalar yaklaşık konumlarında gösteriliyor.</div><div class="map-legend"><span><i class="green"></i>Düşük</span><span><i class="yellow"></i>Orta</span><span><i class="red"></i>Yüksek</span><span><i class="gray"></i>Belirsiz</span></div></div>
         <div class="map-footnote"><svg><use href="#i-info"/></svg>Konumlar demo amaçlıdır. Doluluk, sensör seviyesinden hesaplanan yaklaşık değerdir.</div>
       </div>
       <aside class="queue-card card" id="queuePanel"><div class="card-heading"><div><h2>Toplama öncelikleri</h2><p id="queueSubtitle">Planlama önerileri</p></div><span class="soft-icon amber"><svg><use href="#i-bolt"/></svg></span></div><label class="search-box"><svg><use href="#i-search"/></svg><input id="binSearch" type="search" placeholder="Kutu veya bölge ara" aria-label="Kutu ara"></label><div class="queue-tabs"><button class="active" data-queue="priority">Öncelikli <span id="priorityCount">0</span></button><button data-queue="all">Tüm kutular</button></div><div id="binList" class="bin-list"></div><div class="queue-footer"><span>Kararlar açıklanabilir kurallara dayanır.</span><button class="text-button" data-view="route">Sefer planla <svg><use href="#i-arrow"/></svg></button></div></aside>

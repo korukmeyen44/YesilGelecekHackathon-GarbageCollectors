@@ -73,44 +73,12 @@ function visibleBins() {
   return state.data.bins.filter(b => (source === "all" || b.source === source) && (fill === "all" || b.color === fill));
 }
 function initMap() {
-  if (!window.L) { $("#map").innerHTML = '<div class="empty-state">Harita bileşeni yüklenemedi. Kutu listesi kullanılabilir.</div>'; return; }
-  const map = L.map("map", {zoomControl:true, scrollWheelZoom:false}).setView([40.9916,39.7723],16);
-  const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19,
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> katkıcıları'}).addTo(map);
-  let tileErrors = 0;
-  tiles.on("tileerror", () => { if (++tileErrors > 2) $("#tileNotice").hidden = false; });
-  tiles.on("tileload", () => { tileErrors = 0; $("#tileNotice").hidden = true; });
-  state.map = map;
-  if (state.data) renderMap();
+  state.map = new GCMapScene($("#map"),id=>openDetail(id));
 }
 function renderMap() {
-  const bins = visibleBins();
-  $("#mapCount").textContent = `${bins.length} kutu`;
-  if (!state.map) return;
-  state.markers.forEach(m => state.map.removeLayer(m)); state.markers.clear();
-  const plan = state.view === "route" && state.data.latest_plan?.scope === state.scope ? state.data.latest_plan : null;
-  const numbers = new Map((plan?.stops || []).map((s,i)=>[s.id,i+1]));
-  for (const b of bins) {
-    const label = numbers.has(b.id) ? numbers.get(b.id) : b.fill_percent == null ? "?" : Math.round(b.fill_percent);
-    const html = `<div class="bin-marker${b.source === "live" ? " is-live" : ""}${state.selected === b.id ? " is-selected" : ""}" style="--marker:${colors[b.color]}">${label}${b.fast_filling ? '<span class="fast-flag">↗</span>' : ""}</div>`;
-    const marker = L.marker([b.lat,b.lng], {icon:L.divIcon({className:"",html,iconSize:[31,31],iconAnchor:[15,15]}),
-      title:`${b.id}, ${b.name}, ${b.fill_percent == null ? "doluluk belirsiz" : "%"+b.fill_percent}`,
-      keyboard:true, opacity:plan && !numbers.has(b.id) ? .55 : 1}).addTo(state.map);
-    marker.bindTooltip(`<strong>${esc(b.id)} · ${esc(b.name)}</strong><br>${b.fill_percent == null ? "Doluluk bilinmiyor" : "%"+nf(b.fill_percent,1)+" dolu"} · ${b.source === "live" ? "Canlı sensör" : "Simülasyon"}`,{direction:"top",offset:[0,-12]});
-    marker.on("click",()=>openDetail(b.id)); state.markers.set(b.id,marker);
-  }
-  state.routeLayers.forEach(layer=>state.map.removeLayer(layer)); state.routeLayers=[];
-  if (state.view === "route") {
-    const depot = state.data.depot;
-    state.routeLayers.push(L.marker([depot.lat,depot.lng],{icon:L.divIcon({className:"",html:`<div class="depot-marker">${icon("truck")}</div>`,iconSize:[29,29]}),title:depot.name}).addTo(state.map).bindTooltip(esc(depot.name)));
-    if (plan?.stops.length) {
-      state.routeLayers.push(L.polyline(plan.geometry,{color:"#177b57",weight:4,opacity:.85,dashArray:plan.road_geometry ? null : "8 8"}).addTo(state.map));
-      if (state.fittedPlan !== plan.id) {
-        state.fittedPlan = plan.id;
-        requestAnimationFrame(() => state.map.fitBounds(L.latLngBounds(plan.geometry),{padding:[25,25],maxZoom:17}));
-      }
-    }
-  }
+  const bins=visibleBins();$("#mapCount").textContent=`${bins.length} kutu`;
+  const plan=state.view==="route" && state.data.latest_plan?.scope===state.scope ? state.data.latest_plan : null;
+  state.map?.render({bins,plan,depot:state.data.depot,selected:state.selected});
 }
 function renderQueue() {
   const all = visibleBins().filter(b=>`${b.id} ${b.name} ${b.area}`.toLocaleLowerCase("tr").includes(state.search.toLocaleLowerCase("tr")));
@@ -128,7 +96,7 @@ function renderPreviews() {
 }
 function setView(view) {
   if (!["overview","route","health","impact"].includes(view)) view="overview";
-  state.view=view; const labels={overview:["Genel bakış","Toplama operasyonu","Kutuları izleyin. İhtiyacı görün. Seferinizi planlayın."],route:["Rota planlama","Her durak için bir neden.","Toplama adaylarını seçin, seferi planlayın ve referansla karşılaştırın."],health:["Sensör sağlığı","Sistemin nabzı","Bağlantı kesintilerini ve ölçüm belirsizliklerini birlikte izleyin."],impact:["Etki analizi","Seferin beklenen etkisi","Mesafe, süre ve yakıt varsayımlarına dayalı şeffaf karşılaştırma."]};
+  state.view=view; const labels={overview:["Genel bakış","Şehrin ritmini yakala.","Kampüsü üç boyutta izle. Öncelikleri gör. Daha akıllı bir sefer planla."],route:["Rota planlama","Her durak için bir neden.","Toplama adaylarını seçin, seferi planlayın ve referansla karşılaştırın."],health:["Sensör sağlığı","Sistemin nabzı","Bağlantı kesintilerini ve ölçüm belirsizliklerini birlikte izleyin."],impact:["Etki analizi","Seferin beklenen etkisi","Mesafe, süre ve yakıt varsayımlarına dayalı şeffaf karşılaştırma."]};
   $("#breadcrumbView").textContent=labels[view][0]; $("#pageTitle").textContent=labels[view][1]; $("#pageSubtitle").textContent=labels[view][2];
   $$("nav [data-view]").forEach(b=>{b.classList.toggle("active",b.dataset.view===view); if(b.dataset.view===view)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});
   $("#mapWorkspace").hidden=!["overview","route"].includes(view);
@@ -137,7 +105,7 @@ function setView(view) {
   $("#overviewExtras").hidden=view!=="overview"; $("#routeResults").hidden=view!=="route";
   $("#healthPage").hidden=view!=="health"; $("#impactPage").hidden=view!=="impact";
   $(".map-filters").hidden=view==="route"; $("#sidebar").classList.remove("open");
-  $(".map-footnote").innerHTML = icon("info") + (view === "route" ? "Rota üzerindeki sayılar durak sırasını, renkler doluluğu gösterir. Konumlar demo amaçlıdır." : "Konumlar demo amaçlıdır. Doluluk, sensör seviyesinden hesaplanan yaklaşık değerdir.");
+  $(".map-footnote").innerHTML = icon("info") + (view === "route" ? "Sayılar durak sırası, renkler doluluk. Bina tabanları OSM; eksik yükseklikler tahmini." : "OSM bina tabanları · eksik yükseklikler tahmini · doluluk işaretleri temsilîdir.");
   if(state.data)render(); if(state.map)requestAnimationFrame(()=>state.map.invalidateSize());
   history.replaceState(null,"",`#${view}`);
 }
@@ -149,7 +117,7 @@ function renderPlanner() {
 }
 async function generatePlan() {
   if(state.planning)return; state.planning=true;renderPlanner();
-  try{const p=await api("/api/plan",{scope:state.scope,online:state.online,request_key:requestKey()});state.data.latest_plan=p;render();if(p.stops.length&&state.map)state.map.fitBounds(L.latLngBounds(p.geometry),{padding:[35,35],maxZoom:17});toast(p.stops.length?`${p.stops.length} duraklı plan hazır.`:"Bu koşullarda uygun toplama durağı yok.");}
+  try{const p=await api("/api/plan",{scope:state.scope,online:state.online,request_key:requestKey()});state.data.latest_plan=p;render();if(p.stops.length&&state.map)state.map.fitBounds(p.geometry,{padding:[35,35],maxZoom:17});toast(p.stops.length?`${p.stops.length} duraklı plan hazır.`:"Bu koşullarda uygun toplama durağı yok.");}
   catch(e){toast(e.message,true);}finally{state.planning=false;renderPlanner();}
 }
 function renderRouteResults() {
