@@ -21,6 +21,12 @@
 #ifndef GC_API_TOKEN
 #define GC_API_TOKEN ""
 #endif
+#ifndef GC_TLS_ROOT_CA
+#define GC_TLS_ROOT_CA ""
+#endif
+#ifndef GC_ACTIVE_NODE_ID
+#define GC_ACTIVE_NODE_ID 1
+#endif
 #ifndef GC_ENABLE_LCD
 #define GC_ENABLE_LCD 1
 #endif
@@ -28,4 +34,5 @@
 #define GC_LCD_ADDRESS 0x27
 #endif
 static_assert(GC_GATEWAY_ID >= 1 && GC_GATEWAY_ID <= 255, "Gateway ID must fit a byte");
+static_assert(GC_ACTIVE_NODE_ID >= 0 && GC_ACTIVE_NODE_ID <= 3, "0=all nodes; demo uses node 1 only");
 
