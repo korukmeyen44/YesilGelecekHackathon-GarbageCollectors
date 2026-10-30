@@ -1,0 +1,8 @@
+{
+  "region": "KTÜ Kanuni Kampüsü",
+  "location_notice": "Kutu ve depo konumları sunum için yaklaşık yerleştirilmiştir; gerçek belediye envanteri değildir. Canlı kutuların koordinatlarını bu dosyada güncelleyin.",
+  "live_bins": [
+    {"id": "H1", "node_id": 1, "name": "Canlı sensör 01", "area": "Donanım demo noktası", "lat": 40.99205, "lng": 39.77085, "capacity_l": 770},
+    {"id": "H2", "node_id": 2, "name": "Canlı sensör 02", "area": "Donanım demo noktası", "lat": 40.99155, "lng": 39.77165, "capacity_l": 770}
+  ]
+}
