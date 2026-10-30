@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#147d5a">
+  <title>Garbage Collectors · Operasyon Merkezi</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23147d5a'/%3E%3Cpath d='M12 13h16M17 10h6M15 17l1 13h8l1-13M19 18v8M22 18v8' fill='none' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/vendor/leaflet.css">
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="/vendor/leaflet.js"></script>
+  <script defer src="/app.js"></script>
+</head>
+<body>
+<svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 6h7a4 4 0 0 1 0 8H8a3 3 0 0 0 0 6h7"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h5l3-8 4 16 3-8h5"/></symbol>
+  <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M20 3C9 2 3 6 4 13a7 7 0 0 0 11 6c5-4 5-10 5-16Z"/><path d="M3 22 15 10"/></symbol>
+  <symbol id="i-bin" viewBox="0 0 24 24"><path d="M4 6h16M9 3h6M6 6l1 15h10l1-15M10 10v7M14 10v7"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m10 4-8 14a2 2 0 0 0 2 3h16a2 2 0 0 0 2-3L14 4a2 2 0 0 0-4 0Z"/><path d="M12 9v4m0 4h.01"/></symbol>
+  <symbol id="i-signal" viewBox="0 0 24 24"><path d="M3 20v-3m6 3v-7m6 7V9m6 11V4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="8" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24"><path d="M3 5h11v12H3zM14 9h4l4 4v4h-8"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-13h-7z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+</defs></svg>
+<a class="skip-link" href="#main">İçeriğe geç</a>
+<aside class="sidebar" id="sidebar">
+  <a href="#overview" class="brand" aria-label="Garbage Collectors ana sayfa"><span class="brand-icon"><svg><use href="#i-bin"/></svg></span><span>Garbage<br><strong>Collectors<span class="brand-dot">.</span></strong></span></a>
+  <div class="workspace-badge"><span class="tiny-dot"></span> YEŞİL GELECEK <span>2026</span></div>
+  <div class="nav-caption">ÇALIŞMA ALANI</div>
+  <nav aria-label="Ana menü">
+    <button class="nav-item active" data-view="overview"><svg><use href="#i-grid"/></svg>Genel bakış</button>
+    <button class="nav-item" data-view="route"><svg><use href="#i-route"/></svg>Rota planlama<span class="nav-new">YENİ</span></button>
+    <button class="nav-item" data-view="health"><svg><use href="#i-pulse"/></svg>Sensör sağlığı<span class="nav-count" id="navAlertCount">0</span></button>
+    <button class="nav-item" data-view="impact"><svg><use href="#i-leaf"/></svg>Etki analizi</button>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="purpose-card"><svg><use href="#i-leaf"/></svg><strong>Her sefer bir fark yaratır.</strong><p>İhtiyaç kadar topla.<br>Kaynakları daha iyi kullan.</p><span>YEŞİL GELECEK HACKATHONU</span></div>
+    <button class="nav-item" id="settingsButton"><svg><use href="#i-settings"/></svg>Operasyon ayarları</button>
+    <div class="server-state"><span class="tiny-dot" id="connectionDot"></span><span id="connectionLabel">Bağlanıyor</span><small>YEREL MVP</small></div>
+  </div>
+</aside>
+<div class="app-shell">
+  <header class="topbar">
+    <div class="breadcrumb"><button class="icon-button mobile-menu" id="menuButton" aria-label="Menüyü aç"><svg><use href="#i-menu"/></svg></button><span>Operasyon merkezi</span><svg><use href="#i-chevron"/></svg><strong id="breadcrumbView">Genel bakış</strong></div>
+    <div class="header-actions"><span class="region-label"><svg><use href="#i-pin"/></svg>Trabzon · KTÜ</span><button class="button button-quiet" id="demoButton"><svg><use href="#i-bolt"/></svg>Demo kontrolü</button><span class="avatar" title="Garbage Collectors">GC</span></div>
+  </header>
+  <main id="main">
+    <div id="connectionBanner" class="banner danger" hidden>Sunucuya ulaşılamıyor. Ekrandaki bilgiler son alınan veridir; yeniden bağlanılıyor.</div>
+    <div class="page-heading"><div><div class="eyebrow"><span class="tiny-dot"></span> KTÜ KANUNİ KAMPÜSÜ</div><h1 id="pageTitle">Toplama operasyonu</h1><p id="pageSubtitle">Kutuları izleyin. İhtiyacı görün. Seferinizi planlayın.</p></div><div class="heading-meta"><span class="badge outline">MVP / DEMO</span><span id="clockLabel">—</span></div></div>
+    <section class="metrics" id="metrics" aria-label="Operasyon özeti"></section>
+    <section class="map-workspace" id="mapWorkspace">
+      <div class="map-card card">
+        <div class="card-heading map-heading"><div><h2>Bölge görünümü <span class="count-pill" id="mapCount">26 kutu</span></h2><p>Kanuni Kampüsü ve çevresi</p></div><button class="icon-button" id="fitMap" title="Tüm kutuları göster" aria-label="Haritayı bölgeye ortala"><svg><use href="#i-pin"/></svg></button></div>
+        <div class="map-filters"><div class="segmented" role="group" aria-label="Veri kaynağı filtresi"><button data-source="all" class="active">Tümü</button><button data-source="live"><span class="live-dot"></span>Canlı sensör</button><button data-source="simulated">Simülasyon</button></div><select id="fillFilter" aria-label="Doluluk filtresi"><option value="all">Tüm doluluklar</option><option value="red">%80 ve üzeri</option><option value="yellow">%50–79</option><option value="green">%50 altı</option><option value="gray">Veri belirsiz</option></select></div>
+        <div class="map-container"><div id="map" aria-label="Çöp kutuları ve toplama rotası haritası"></div><div class="map-notice" id="tileNotice" hidden>Harita zemini yüklenemedi. Noktalar yaklaşık konumlarında gösteriliyor.</div><div class="map-legend"><span><i class="green"></i>Düşük</span><span><i class="yellow"></i>Orta</span><span><i class="red"></i>Yüksek</span><span><i class="gray"></i>Belirsiz</span></div></div>
+        <div class="map-footnote"><svg><use href="#i-info"/></svg>Konumlar demo amaçlıdır. Doluluk, sensör seviyesinden hesaplanan yaklaşık değerdir.</div>
+      </div>
+      <aside class="queue-card card" id="queuePanel"><div class="card-heading"><div><h2>Toplama öncelikleri</h2><p id="queueSubtitle">Planlama önerileri</p></div><span class="soft-icon amber"><svg><use href="#i-bolt"/></svg></span></div><label class="search-box"><svg><use href="#i-search"/></svg><input id="binSearch" type="search" placeholder="Kutu veya bölge ara" aria-label="Kutu ara"></label><div class="queue-tabs"><button class="active" data-queue="priority">Öncelikli <span id="priorityCount">0</span></button><button data-queue="all">Tüm kutular</button></div><div id="binList" class="bin-list"></div><div class="queue-footer"><span>Kararlar açıklanabilir kurallara dayanır.</span><button class="text-button" data-view="route">Sefer planla <svg><use href="#i-arrow"/></svg></button></div></aside>
+      <aside class="card planner-panel" id="plannerPanel" hidden></aside>
+    </section>
+    <section class="overview-extras" id="overviewExtras"><article class="card"><div class="card-heading"><div><h2>Bir sonraki dolumu öngörün</h2><p>Son dolum dönemindeki eğilime göre erken uyarılar</p></div><span class="soft-icon green-soft"><svg><use href="#i-clock"/></svg></span></div><div id="forecastPreview"></div><div class="card-bottom-note">Simülasyon geçmişi · Gerçek saha başarısını temsil etmez.</div></article><article class="card"><div class="card-heading"><div><h2>Sistemin nabzı</h2><p>Bağlantı ve ölçüm kalitesi</p></div><button class="text-button" data-view="health">Tümünü gör <svg><use href="#i-arrow"/></svg></button></div><div id="healthPreview"></div></article></section>
+    <section id="routeResults" hidden></section>
+    <section id="healthPage" hidden></section>
+    <section id="impactPage" hidden></section>
+    <footer class="page-footer"><span>Garbage Collectors <i>·</i> Yeşil Gelecek Hackathonu 2026</span><span>Veriden karara, daha temiz bir geleceğe.</span></footer>
+  </main>
+</div>
+<div class="drawer-shade" id="drawerShade" hidden></div>
+<aside class="detail-drawer" id="detailDrawer" role="dialog" aria-modal="true" aria-label="Kutu ayrıntıları" hidden tabindex="-1"></aside>
+<dialog id="settingsDialog"><form id="settingsForm"><div class="dialog-heading"><div><span class="eyebrow">PLANLAMA POLİTİKASI</span><h2>Operasyon ayarları</h2></div><button type="button" class="icon-button" data-close="settingsDialog" aria-label="Kapat"><svg><use href="#i-close"/></svg></button></div><p class="muted">Bu değerler demo varsayımlarıdır. Yeni oluşturulan planlara uygulanır.</p><div class="settings-grid" id="settingsFields"></div><label class="checkbox-row"><input type="checkbox" name="use_degraded">Kısmi kaliteli ölçümleri otomatik planlamada kullan</label><p class="info-note">Kapasite hesabı yaklaşık seviyeye dayanır; gerçek hacim/ağırlık ölçümü değildir. Yakıt maliyeti personel ve bakım giderlerini içermez. CO₂ katsayısı yalnız yakıt yanmasını temsil eder.</p><div class="dialog-actions"><button type="button" class="button" data-close="settingsDialog">Vazgeç</button><button class="button button-primary" type="submit">Ayarları kaydet</button></div></form></dialog>
+<dialog id="demoDialog"><div class="dialog-heading"><div><span class="eyebrow">SUNUM SENARYOSU</span><h2>Demo kontrolü</h2></div><button class="icon-button" data-close="demoDialog" aria-label="Kapat"><svg><use href="#i-close"/></svg></button></div><div class="demo-clock"><svg><use href="#i-clock"/></svg><div><span>Simülasyon zamanı · duraklatılmış</span><strong id="demoClock">—</strong></div></div><p class="muted">Yalnız sentetik kutuların zamanı ilerler. Canlı sensör verileri gerçek zamanda kalır. Rota planları bu iki kaynağı ayrı işler.</p><div class="demo-buttons"><button class="button" data-advance="0.25">+15 dakika</button><button class="button button-primary" data-advance="1">+1 saat</button><button class="button" data-advance="4">+4 saat</button></div><hr><h3>Bir sensör durumu gösterin</h3><div class="form-field"><label for="demoBin">Simülasyon kutusu</label><select id="demoBin"></select></div><div class="form-field"><label for="demoFault">Durum</label><select id="demoFault"><option value="normal">Normal ölçüm</option><option value="offline">Bağlantı kesildi</option><option value="unstable">Kararsız / geçersiz ölçüm</option><option value="degraded">Kısmi kaliteli ölçüm</option></select></div><button class="button button-primary full-width" id="applyFault">Senaryoyu uygula</button><p class="info-note">14 günlük geçmiş üretilmiştir. Kutu, depo ve rota karşılaştırmaları sunum senaryosudur.</p></dialog>
+<dialog id="authDialog"><form id="authForm"><span class="eyebrow">YEREL ERİŞİM</span><h2>Operasyon merkezine bağlanın</h2><p class="muted">Sunucu GC_API_TOKEN ile başlatılmış. Aynı erişim anahtarını girin. Anahtar yalnız bu sekmenin belleğinde tutulur.</p><div class="form-field"><label for="accessToken">Erişim anahtarı</label><input id="accessToken" type="password" required autocomplete="off"></div><button type="submit" class="button button-primary full-width">Bağlan</button><p id="authError" role="alert"></p></form></dialog>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body></html>
