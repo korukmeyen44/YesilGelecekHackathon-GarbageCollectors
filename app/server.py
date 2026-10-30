@@ -18,7 +18,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / "firmware/tools"))
-from collector import Store, IdentityConflict, ValidationError, load_calibration, loads
+from collector import Store, IdentityConflict, ValidationError, load_calibration, loads, delivery_receipt
 from app.domain import DEPOT, decorate, validate_settings
 from app.routing import Roads, plan_route
 from app.storage import Operations
@@ -329,8 +329,10 @@ def make_server(app, host="127.0.0.1", port=8080, token=""):
                     if path == "/api/telemetry":
                         if not isinstance(body, dict) or body.get("source") != "rf":
                             raise ValueError("Canlı telemetri yalnız source=rf kabul eder. Sentetik veri ayrı demo deposundadır.")
+                        if body.get("node_id") not in [b["node_id"] for b in app.config["live_bins"]]:
+                            raise ValueError("Bu düğüm canlı kutu envanterinde kayıtlı değil.")
                         outcome = app.live.ingest(body)
-                        self.reply(201 if outcome["inserted"] else 200, outcome)
+                        self.reply(201 if outcome["inserted"] else 200, delivery_receipt(body, outcome))
                     else:
                         self.reply(200, app.action(path, body))
             except IdentityConflict as exc:

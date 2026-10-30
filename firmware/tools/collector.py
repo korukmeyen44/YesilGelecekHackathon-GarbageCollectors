@@ -171,6 +171,11 @@ def measurement_identity(payload):
             ("version", "source", "node_id", "boot_id", "sequence", "measured_uptime_ms", "measurement")}
 
 
+def delivery_receipt(payload, outcome):
+    """Bind the durable receiver acknowledgement to the exact RF measurement."""
+    return {**outcome, "measurement_id": {key: payload[key] for key in ("node_id", "boot_id", "sequence")}}
+
+
 class Store:
     def __init__(self, path, calibration):
         self.calibration = calibration
@@ -342,8 +347,9 @@ def make_server(store, host="127.0.0.1", port=8080, token=""):
                 data = self.rfile.read(length)
                 if len(data) != length:
                     raise ValidationError("Incomplete request body")
-                outcome = store.ingest(loads(data))
-                self.reply(201 if outcome["inserted"] else 200, outcome)
+                payload = loads(data)
+                outcome = store.ingest(payload)
+                self.reply(201 if outcome["inserted"] else 200, delivery_receipt(payload, outcome))
             except IdentityConflict as exc:
                 self.reply(409, {"error": str(exc)})
             except (ValueError, TypeError) as exc:
