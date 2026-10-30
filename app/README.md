@@ -4,6 +4,48 @@ KTÜ Kanuni Kampüsü çevresinde tek araçla toplama kararı veren yerel hackat
 24 simüle kutu, 14 günlük üretilmiş geçmiş ve 1 fiziksel sensör yuvası içerir.
 Gerçek cihaz kayıtları ve simülasyon farklı SQLite dosyalarında tutulur.
 
+## 3D operasyon haritası
+
+Ana harita MapLibre GL JS 5.6.2 ile WebGL üzerinde eğimli 3D görünür. Bina ve yol
+tabanları gerçek OpenStreetMap verisinden kampüs çevresi için alınmıştır. Yerel
+önbellekte 328 bina, 689 yol ve 101 arazi/alan geometrisi bulunur. Veri kaynağı,
+tarih ve lisans `web/data/scene-source.json` / `LICENSE.md` dosyalarındadır.
+328 binanın 327'sinde yükseklik doğrudan ölçülü OSM height alanından gelmez:
+kat sayısı × 3m veya eksikse 12m görsel tahmin kullanılır. Fotogrametri değildir.
+Noktaların/sütunların boyutları doluluğu vurgulayan temsilî göstergelerdir;
+gerçek çöp kutularının fiziksel boyut modeli değildir.
+
+- **3D / Üstten:** eğimli şehir ve düz operasyon görünümü.
+- **Işık:** gün ışığı ve alacakaranlık bina aydınlatması.
+- **Arazi:** isteğe bağlı AWS/Mapzen Terrarium yükseklik verisi (internet gerekir).
+- **Uçuş:** varsa sefer duraklarını, yoksa kutuları dolaşan kamera; tekrar basarak,
+  haritayı sürükleyerek veya sekmeden ayrılarak durdurulur. Azaltılmış hareket
+  tercihinde otomatik uçuş başlatılmaz.
+- **PNG:** o anki WebGL haritasını işaretler ve kaynak atfıyla PNG olarak indirir.
+- **2D yedek:** WebGL yoksa veya elle seçilirse Leaflet üzerinde noktalar,
+  doluluk renkleri ve yol çizgisi korunur. 3D'ye dönmek için sayfa yenilenir.
+- Tam ekran düğmesi harita ve sefer panelini birlikte büyütür.
+
+Kutu seçimi, kaynak/doluluk filtreleri, rota hesaplaması ve canlı veri aynı
+API'yi kullanır. Periyodik veri güncellemeleri kamerayı sıfırlamaz ve mevcut
+işaretçileri yeniden oluşturarak klavye odağını kaybetmez. Rota varsa durak
+sırası işaretlerin içinde gösterilir; yaklaşık yol kesikli çizilir.
+
+Harita zemini OSM raster karolarıyla, erişilebilirse OpenFreeMap vektör zeminiyle
+zenginleştirilir. Yerel şehir geometrisi internet olmadan da kullanılabilir;
+çevre zemin/etiketler ve arazi için ağ erişimi gerekir. Karo toplu indirme yoktur.
+Modeli yenilemek için `python app/tools/fetch_scene.py` çalıştırılabilir.
+
+```powershell
+node app/tests/test_map_scene.cjs
+```
+
+Bu test gerçek sahne denetleyicisinin API/işaretçi/rota/kamera sözleşmelerini ve
+kaynak geometrisini sınar; gerçek WebGL veya ekran görüntüsü testi değildir.
+Bu değişiklikte ekran kontrol araçları `failed to write kernel assets` hatasıyla
+başlatılamadığı için tarayıcı görsel QA ve ekran görüntüsü ile ikinci görsel
+iterasyon tamamlanamadı. Çalışan bir ekran oturumunda bu adım ayrıca yapılmalı.
+
 ## Başlatma
 
 Repo kökünde Python 3.10 veya üzeriyle:
@@ -128,6 +170,28 @@ operatörün yapılmış toplama için kayıt oluşturmasını engellemez. Demo 
 fiziksel kutuda yalnız operatör kaydı oluşturulur, gerçek telemetri değiştirilmez.
 
 ## Dolum tahmini ve değerlendirme
+
+Mevcut mock verinin kapsamını ve jüriye gösterilecek grafikleri üretmek için:
+
+```powershell
+python -m pip install -r app/requirements-analysis.txt
+python -m app.mock_report
+```
+
+Bu araç mevcut `app/.data/operations.sqlite3` dosyasını salt okunur açar; yeni
+veri üretmez, demo veya donanım kayıtlarını değiştirmez. `app/reports` altında
+internet gerektirmeyen tek HTML raporu, sunuma uygun PNG, sayısal JSON ve inceleme
+notu oluşturur. HTML dosyasını doğrudan tarayıcıda açabilirsiniz. Rapor bir anlık
+görüntüdür; demo verisi değişince yeniden üretilmelidir. İsteğe bağlı Matplotlib
+yalnız rapor üretiminde gerekir; uygulama sunucusu ek bağımlılık istemez.
+
+14 günlük mevcut veri operasyon demosuna uygundur; haftalık davranış, geçmiş
+kesintiler ve bölgesel yoğunluk süreci açısından sınırlıdır. Rapordaki zaman ×
+kutu ısı matrisi coğrafi yoğunluk heatmap'i değildir. Ayrıntılı bulgular ve sonraki
+veri üreticisi önerileri `reports/MOCK_VERI_INCELEMESI.md` içindedir.
+Üreticiye ilişkin yorumlar incelenen `storage.py` sürümüne özeldir; üretici kodu
+değiştirildiğinde bu kapsam değerlendirmesi de güncellenmelidir. Rapor sayısal
+anlık görüntünün ve üretici kaynağının SHA-256 özetlerini saklar.
 
 Son 6 saatteki geçerli ölçümler 5 dakikalık medyanlara özetlenir. En az 45 dakikaya
 yayılan 4 örnek aranır. Son boşaltma/büyük düşüş sonrası dönem kullanılır;
