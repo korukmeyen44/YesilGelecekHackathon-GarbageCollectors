@@ -30,6 +30,14 @@ def main():
                     "-I", str(ROOT / "tests/native/fakes"), "-I", str(ROOT / "include"),
                     str(ROOT / "tests/native/test_node.cpp"), "-o", str(node_executable)], check=True)
     subprocess.run([str(node_executable)], check=True)
+    json_headers = ROOT / ".pio/libdeps/esp32_gateway/ArduinoJson/src"
+    if not json_headers.is_dir():
+        parser.error("Run build.ps1 -Environment esp32_gateway first to install pinned ArduinoJson.")
+    delivery_executable = build / ("test_delivery.exe" if os.name == "nt" else "test_delivery")
+    subprocess.run([compiler,"-std=c++11","-Wall","-Wextra","-Werror","-pedantic",*link_flags,
+                    "-I",str(ROOT/"include"),"-I",str(json_headers),
+                    str(ROOT/"tests/native/test_delivery.cpp"),"-o",str(delivery_executable)],check=True)
+    subprocess.run([str(delivery_executable)],check=True)
     env = dict(os.environ, GC_CPP_JSON_FIXTURE=str(fixture), PYTHONDONTWRITEBYTECODE="1")
     subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(ROOT / "tests/python"),
                     "-v"], cwd=ROOT, env=env, check=True)
