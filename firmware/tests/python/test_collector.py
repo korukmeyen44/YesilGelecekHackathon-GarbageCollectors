@@ -13,14 +13,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from collector import (IdentityConflict, Store, ValidationError, analyze, load_calibration,
                        loads, make_server, validate_payload)
-from simulate import scenario, sensor
+from simulate import scenario, measurement
 from serial_bridge import LineFramer
 
 
-def record(sequence=1, distances=(220, 220), boot=1):
+def record(sequence=1, distance=220, boot=1, status=None):
     p = next(scenario(boot))
     p["sequence"] = sequence
-    p["sensors"] = [sensor(d, "ok" if d is not None else "too_few") for d in distances]
+    p["measurement"] = measurement(distance, status or ("ok" if distance is not None else "too_few"))
     return p
 
 
@@ -35,32 +35,28 @@ class CollectorTests(unittest.TestCase):
     def test_calibration_endpoints_and_midpoint(self):
         for d, expected in ((400, 0), (220, 50), (40, 100), (20, 100)):
             with self.subTest(d=d):
-                self.assertEqual(analyze(record(distances=(d, d)), self.config)["fill_percent"], expected)
+                self.assertEqual(analyze(record(distance=d), self.config)["fill_percent"], expected)
 
-    def test_independent_sensor_calibrations(self):
-        self.config["nodes"]["1"]["sensors"][1]["empty_mm"] = 600
-        self.config["nodes"]["1"]["sensors"][1]["full_mm"] = 100
-        self.assertEqual(analyze(record(distances=(220, 350)), self.config)["fill_percent"], 50)
+    def test_single_calibration_applies_to_firmware_mean(self):
+        self.config["nodes"]["1"]["measurement"].update(empty_mm=600, full_mm=100)
+        self.assertEqual(analyze(record(distance=350), self.config)["fill_percent"], 50)
 
     def test_missing_echo_is_not_empty_or_full(self):
-        result = analyze(record(distances=(None, None)), self.config)
+        result = analyze(record(distance=None), self.config)
         self.assertIsNone(result["fill_percent"])
         self.assertEqual(result["measurement_quality"], "invalid")
 
-    def test_single_sensor_is_degraded(self):
-        result = analyze(record(distances=(None, 220)), self.config)
+    def test_partial_pairs_keep_degraded_status(self):
+        p = record(status="degraded")
+        validate_payload(p)
+        result = analyze(p, self.config)
         self.assertEqual(result["fill_percent"], 50)
         self.assertEqual(result["measurement_quality"], "degraded")
 
-    def test_disagreement_is_not_silently_averaged(self):
-        result = analyze(record(distances=(40, 400)), self.config)
+    def test_invalid_geometry_does_not_become_empty(self):
+        result = analyze(record(distance=900), self.config)
         self.assertIsNone(result["fill_percent"])
-        self.assertEqual(result["measurement_quality"], "sensor_disagreement")
-
-    def test_geometry_error_does_not_become_empty(self):
-        result = analyze(record(distances=(900, 900)), self.config)
-        self.assertIsNone(result["fill_percent"])
-        self.assertEqual(result["sensor_status"], ["outside_geometry", "outside_geometry"])
+        self.assertEqual(result["measurement_quality"], "outside_geometry")
 
     def test_example_calibration_does_not_claim_real_fill(self):
         c = load_calibration(ROOT / "config/calibration.example.json")
@@ -71,8 +67,7 @@ class CollectorTests(unittest.TestCase):
     def test_duplicate_retry_is_idempotent_despite_different_gateway_age(self):
         p = record()
         self.assertTrue(self.store.ingest(p, 100)["inserted"])
-        p["age_ms"] = 1000
-        p["gateway_boot_id"] += 1
+        p["age_ms"] = 1000; p["gateway_boot_id"] += 1
         self.assertFalse(self.store.ingest(p, 102)["inserted"])
         self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0], 1)
         self.assertEqual(self.store.latest(102)[0]["age_ms"], 2000)
@@ -80,12 +75,12 @@ class CollectorTests(unittest.TestCase):
     def test_identity_collision_detected(self):
         self.store.ingest(record(), 100)
         with self.assertRaises(IdentityConflict):
-            self.store.ingest(record(distances=(400, 400)), 101)
+            self.store.ingest(record(distance=400), 101)
 
     def test_old_sequence_and_previous_boot_do_not_replace_latest(self):
         self.store.ingest(record(10, boot=2), 100)
-        self.store.ingest(record(9, distances=(400, 400), boot=2), 101)
-        self.store.ingest(record(100, distances=(400, 400), boot=1), 102)
+        self.store.ingest(record(9, distance=400, boot=2), 101)
+        self.store.ingest(record(100, distance=400, boot=1), 102)
         latest = self.store.latest(102)[0]
         self.assertEqual((latest["boot_id"], latest["sequence"], latest["fill_percent"]), (2, 10, 50))
 
@@ -96,53 +91,52 @@ class CollectorTests(unittest.TestCase):
         self.store.ingest(record(1, boot=2), 102)
         self.assertEqual(self.store.latest(102)[0]["boot_id"], 2)
 
-    def test_stale_data_has_no_current_fill(self):
+    def test_stale_threshold_allows_normal_ten_second_windows(self):
         self.store.ingest(record(), 100)
-        latest = self.store.latest(116)[0]
+        for age in (10, 20, 30):
+            self.assertEqual(self.store.latest(100 + age)[0]["freshness"], "fresh")
+        latest = self.store.latest(136)[0]
         self.assertEqual(latest["freshness"], "stale")
         self.assertIsNone(latest["fill_percent"])
         self.assertEqual(latest["last_valid_fill_percent"], 50)
 
     def test_queue_age_is_used_and_very_old_data_cannot_advance_latest(self):
-        p = record()
-        p["age_ms"] = 14000
+        p = record(); p["age_ms"] = 34000
         self.store.ingest(p, 100)
         self.assertEqual(self.store.latest(102)[0]["freshness"], "stale")
-        p = record(2, distances=(400, 400))
-        p["age_ms"] = 20000
+        p = record(2, distance=400); p["age_ms"] = 40000
         self.store.ingest(p, 103)
         self.assertEqual(self.store.latest(103)[0]["sequence"], 1)
         self.assertEqual(self.store.db.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0], 2)
 
     def test_invalid_new_measurement_preserves_only_labelled_last_good_value(self):
         self.store.ingest(record(), 100)
-        self.store.ingest(record(2, distances=(None, None)), 104)
-        latest = self.store.latest(104)[0]
+        self.store.ingest(record(2, distance=None), 110)
+        latest = self.store.latest(110)[0]
         self.assertIsNone(latest["fill_percent"])
         self.assertEqual(latest["measurement_quality"], "invalid")
         self.assertEqual(latest["last_valid_fill_percent"], 50)
-        self.assertEqual(latest["last_valid_age_ms"], 4000)
+        self.assertEqual(latest["last_valid_age_ms"], 10000)
 
-    def test_large_change_requires_three_cycles_and_accepts_emptying(self):
-        self.store.ingest(record(distances=(40, 40)), 100)
+    def test_large_change_requires_three_groups_and_accepts_emptying(self):
+        self.store.ingest(record(distance=40), 100)
         for sequence in (2, 3):
-            outcome = self.store.ingest(record(sequence, (400, 400)), 100 + sequence)
+            outcome = self.store.ingest(record(sequence, 400), 100 + (sequence - 1) * 10)
             self.assertEqual(outcome["result"]["measurement_quality"], "change_pending")
             self.assertIsNone(outcome["result"]["fill_percent"])
-        self.store.ingest(record(4, (400, 400)), 104)
-        self.assertEqual(self.store.latest(104)[0]["fill_percent"], 0)
+        self.store.ingest(record(4, 400), 130)
+        self.assertEqual(self.store.latest(130)[0]["fill_percent"], 0)
 
-    def test_invalid_or_missing_cycle_resets_change_confirmation(self):
-        self.store.ingest(record(distances=(400, 400)), 100)
-        self.store.ingest(record(2, (40, 40)), 101)
-        self.store.ingest(record(3, (None, None)), 102)
-        self.store.ingest(record(4, (40, 40)), 103)
-        self.assertEqual(self.store.latest(103)[0]["measurement_quality"], "change_pending")
-        self.store.ingest(record(6, (40, 40)), 104)
-        self.store.ingest(record(7, (40, 40)), 105)
-        self.assertIsNone(self.store.latest(105)[0]["fill_percent"])
-        self.store.ingest(record(8, (40, 40)), 106)
-        self.assertEqual(self.store.latest(106)[0]["fill_percent"], 100)
+    def test_invalid_or_missing_group_resets_change_confirmation(self):
+        self.store.ingest(record(distance=400), 100)
+        self.store.ingest(record(2, 40), 110)
+        self.store.ingest(record(3, None), 120)
+        self.store.ingest(record(4, 40), 130)
+        self.store.ingest(record(6, 40), 150)
+        self.store.ingest(record(7, 40), 160)
+        self.assertIsNone(self.store.latest(160)[0]["fill_percent"])
+        self.store.ingest(record(8, 40), 170)
+        self.assertEqual(self.store.latest(170)[0]["fill_percent"], 100)
 
     def test_changed_calibration_invalidates_old_current_result(self):
         self.store.ingest(record(), 100)
@@ -155,9 +149,7 @@ class CollectorTests(unittest.TestCase):
     def test_state_survives_receiver_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "test.sqlite3"
-            first = Store(path, self.config)
-            first.ingest(record(), 100)
-            first.close()
+            first = Store(path, self.config); first.ingest(record(), 100); first.close()
             second = Store(path, self.config)
             try:
                 self.assertEqual(second.latest(101)[0]["fill_percent"], 50)
@@ -165,16 +157,24 @@ class CollectorTests(unittest.TestCase):
             finally:
                 second.close()
 
+    def test_old_v1_is_explicitly_rejected(self):
+        p = record(); p["version"] = 1
+        with self.assertRaisesRegex(ValidationError, "v2 firmware required"):
+            validate_payload(p)
+        p = record(); p["sensors"] = [{"distance_mm": 220}, {"distance_mm": 220}]
+        with self.assertRaises(ValidationError):
+            validate_payload(p)
+
     def test_malformed_and_inconsistent_telemetry_rejected(self):
         variants = []
         for key, value in (("node_id", 4), ("node_id", True), ("boot_id", 0),
                            ("age_ms", -1), ("age_ms", 70000), ("source", "unknown"),
-                           ("sequence", 1.5), ("version", 2)):
+                           ("sequence", 1.5), ("version", 3)):
             p = record(); p[key] = value; variants.append(p)
-        for key, value in (("distance_mm", 0), ("valid_samples", 2),
-                           ("status", "garbage"), ("spread_mm", 100), ("error_mask", 16)):
-            p = record(); p["sensors"][0][key] = value; variants.append(p)
-        p = record(); p["sensors"] = []; variants.append(p)
+        for key, value in (("distance_mm", 0), ("valid_pairs", 5), ("attempted_pairs", 9),
+                           ("status", "garbage"), ("spread_mm", 100), ("window_duration_ms", 0),
+                           ("valid_samples", [9, 10]), ("error_masks", [16, 0])):
+            p = record(); p["measurement"][key] = value; variants.append(p)
         for p in variants:
             with self.subTest(p=p), self.assertRaises(ValidationError):
                 validate_payload(p)
@@ -182,15 +182,14 @@ class CollectorTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 loads(data)
 
-    def test_zero_width_and_invalid_calibration_rejected(self):
-        for mutate in (lambda c: c["nodes"]["1"]["sensors"][0].update(full_mm=400),
-                       lambda c: c.update(stale_after_ms=0),
-                       lambda c: c["nodes"]["1"].update(calibrated="yes")):
-            config = copy.deepcopy(self.config)
-            mutate(config)
+    def test_zero_width_and_legacy_calibration_rejected(self):
+        for mutate in (lambda c: c["nodes"]["1"]["measurement"].update(full_mm=400),
+                       lambda c: c.update(stale_after_ms=15000),
+                       lambda c: c["nodes"]["1"].update(calibrated="yes"),
+                       lambda c: c["nodes"]["1"].pop("measurement")):
+            config = copy.deepcopy(self.config); mutate(config)
             with tempfile.TemporaryDirectory() as directory:
-                path = Path(directory) / "bad.json"
-                path.write_text(json.dumps(config))
+                path = Path(directory) / "bad.json"; path.write_text(json.dumps(config))
                 with self.assertRaises(ValidationError):
                     load_calibration(path)
 
@@ -204,8 +203,17 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(result["fill_percent"], 50)
         self.assertEqual(payload["boot_id"], 0x12345678)
         latest = self.store.latest(100)[0]
-        self.assertEqual(latest["sensors"], payload["sensors"])
-        self.assertEqual(latest["gateway_boot_id"], 17)
+        self.assertEqual(latest["measurement"], payload["measurement"])
+        self.assertEqual(latest["measurement"]["window_duration_ms"], 10000)
+        self.assertNotIn("sensors", latest)
+
+    def test_complete_simulator_scenario(self):
+        outcomes = [self.store.ingest(p, 100 + i * 10)["result"]
+                    for i, p in enumerate(scenario(99))]
+        self.assertEqual([outcomes[i]["fill_percent"] for i in (0, 3, 9, 12)], [0, 50, 100, 0])
+        self.assertEqual(outcomes[4]["measurement_quality"], "degraded")
+        self.assertIsNone(outcomes[5]["fill_percent"])
+        self.assertIsNone(outcomes[6]["fill_percent"])
 
 
 class HttpTests(unittest.TestCase):
@@ -255,7 +263,7 @@ class HttpTests(unittest.TestCase):
 
     def test_http_identity_conflict_returns_409(self):
         self.request("/api/telemetry", json.dumps(record()).encode())
-        self.assertEqual(self.request("/api/telemetry", json.dumps(record(distances=(400, 400))).encode())[0], 409)
+        self.assertEqual(self.request("/api/telemetry", json.dumps(record(distance=400)).encode())[0], 409)
 
 
 class SerialFramingTests(unittest.TestCase):

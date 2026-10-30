@@ -11,84 +11,100 @@ void expect(bool condition, const char* message) {
     ++checks;
     if (!condition) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
-gc::SensorSummary summary(uint16_t distance) {
-    gc::SampleWindow window;
-    for (uint8_t i = 0; i < 5; ++i) window.addDistance(distance);
+gc::MeasurementSummary summary(uint16_t first, uint16_t second, uint8_t good = 10) {
+    gc::MeanWindow window;
+    for (uint8_t i = 0; i < 10; ++i)
+        window.addPair(i < good ? gc::readingFromDistance(first) : gc::invalidReading(gc::Timeout),
+                       gc::readingFromDistance(second));
     return window.summarize();
 }
 gc::Packet samplePacket() {
     gc::Packet p;
     p.nodeId = 1; p.bootId = 0x12345678UL; p.sequence = 0x01020304UL;
-    p.measuredUptimeMs = 700;
-    p.sensors[0] = summary(220);
-    gc::SampleWindow invalid;
-    invalid.addError(gc::Timeout);
-    p.sensors[1] = invalid.summarize();
+    p.measuredUptimeMs = 10500; p.windowDurationMs = 10000;
+    p.measurement = summary(200, 240, 8);
     return p;
 }
-void filterTests() {
-    gc::SampleWindow w;
-    w.addEchoDuration(0);
-    expect(w.summarize().distanceMm == gc::kInvalidMm, "timeout must not become empty/full");
-    expect(w.summarize().errorMask == gc::Timeout, "timeout reason retained");
-    w.addDistance(19); w.addDistance(gc::kMaxDistanceMm + 1);
-    expect(w.summarize().validSamples == 0, "reject outside nominal/configured range");
-    expect(w.summarize().errorMask == (gc::Timeout | gc::TooNear | gc::TooFar), "combine reasons");
+void measurementTests() {
+    expect(gc::readingFromDuration(0).errorMask == gc::Timeout, "timeout stays invalid");
+    expect(gc::readingFromDistance(19).errorMask == gc::TooNear, "near bound");
+    expect(gc::readingFromDistance(gc::kMaxDistanceMm + 1).errorMask == gc::TooFar, "far bound");
+    expect(gc::readingFromDuration(1166).distanceMm == 200, "time-of-flight conversion");
+    expect(gc::readingFromDuration(40000).errorMask == gc::TooFar, "duration overflow guarded");
+    expect(summary(80, 360).distanceMm == 220, "two different sensor ranges are averaged on node");
+    expect(summary(80, 360).status == gc::MeasurementStatus::Ok, "spatial difference does not reject mean");
+    gc::MeanWindow w;
+    for (uint8_t i = 0; i < 9; ++i) w.addPair(gc::readingFromDistance(200), gc::readingFromDistance(200));
+    expect(!w.complete() && w.summarize().distanceMm == gc::kInvalidMm, "no report before ten pairs");
+    w.addPair(gc::readingFromDistance(280), gc::readingFromDistance(280));
+    expect(w.complete() && w.summarize().distanceMm == 208, "arithmetic mean, not median");
+    expect(w.summarize().spreadMm == 80, "temporal pair mean spread inclusive threshold");
+    w.addPair(gc::readingFromDistance(1200), gc::readingFromDistance(1200));
+    expect(w.summarize().distanceMm == 208, "exactly ten attempts; extra samples cannot change group");
     w.reset();
-    w.addEchoDuration(1166); w.addEchoDuration(1166); w.addEchoDuration(1166);
-    expect(w.summarize().distanceMm == 200, "integer time-of-flight conversion in mm");
-    expect(w.summarize().status == gc::SensorStatus::Ok, "three agreeing echoes accepted");
+    for (uint8_t i = 0; i < 10; ++i)
+        w.addPair(gc::readingFromDistance(i < 5 ? 200 : 201), gc::readingFromDistance(i < 5 ? 201 : 202));
+    expect(w.summarize().distanceMm == 201, "round once after all raw paired sums");
+    expect(summary(200, 240, 6).status == gc::MeasurementStatus::Degraded, "six valid pairs accepted degraded");
+    expect(summary(200, 240, 6).distanceMm == 220, "invalid readings never count as zero");
+    expect(summary(200, 240, 5).distanceMm == gc::kInvalidMm, "five valid pairs insufficient");
+    expect(summary(200, 240, 0).validSamples[1] == 10, "per-sensor diagnostics retained without distances");
+    expect(summary(200, 240, 0).distanceMm == gc::kInvalidMm, "lone sensor cannot substitute combined pair");
+    expect(gc::validSummary(summary(200, 240, 0)), "invalid window still transportable");
     w.reset();
-    for (uint16_t v : {200, 202, 201, 700, 199}) w.addDistance(v);
-    expect(w.summarize().distanceMm == 201, "isolated in-range outlier suppressed by median");
-    expect(w.summarize().spreadMm == 2, "five-sample central spread");
-    w.reset();
-    for (uint16_t v : {200, 202, 204, 206}) w.addDistance(v);
-    expect(w.summarize().distanceMm == 203, "even median avoids integer overflow");
-    w.reset();
-    for (uint16_t v : {100, 300, 500, 700, 900}) w.addDistance(v);
-    expect(w.summarize().status == gc::SensorStatus::Unstable, "variable echoes flagged unstable");
-    expect(w.summarize().distanceMm == gc::kInvalidMm, "unstable summary carries no accepted distance");
-    w.reset(); w.addDistance(200); w.addDistance(200); w.addError(gc::EchoStuckHigh);
-    expect(w.summarize().status == gc::SensorStatus::TooFew, "two echoes insufficient");
-    expect(w.summarize().errorMask == gc::EchoStuckHigh, "stuck-high diagnosis retained");
-    expect(gc::validSummary(w.summarize()), "too-few summary is a valid transport record");
-    expect(summary(20).distanceMm == 20, "inclusive near boundary");
-    expect(summary(gc::kMaxDistanceMm).status == gc::SensorStatus::Ok, "inclusive far boundary");
+    for (uint8_t i = 0; i < 10; ++i)
+        w.addPair(gc::readingFromDistance(i < 5 ? 100 : 300), gc::readingFromDistance(i < 5 ? 100 : 300));
+    expect(w.summarize().status == gc::MeasurementStatus::Unstable, "large temporal variation flagged");
+    expect(w.summarize().distanceMm == gc::kInvalidMm, "unstable group has no accepted mean");
+    expect(summary(20, 20).distanceMm == 20, "minimum distance");
+    expect(summary(gc::kMaxDistanceMm, gc::kMaxDistanceMm).distanceMm == gc::kMaxDistanceMm,
+           "32-bit accumulation avoids AVR 16-bit overflow");
+    for (uint16_t offset = 0; offset <= 150; ++offset)
+        expect(gc::pingGapMs(offset) == 425 + offset, "random cadence inclusive 425-575 ms");
+    expect(20UL * gc::pingGapMs(0) == 8500 && 20UL * gc::pingGapMs(150) == 11500,
+           "twenty waits bound group duration before echo/loop overhead");
+    expect(20UL * gc::pingGapMs(75) == 10000, "expected cadence is ten seconds");
 }
 void protocolTests() {
     const uint8_t reference[] = {'1','2','3','4','5','6','7','8','9'};
-    expect(gc::crc16(reference, sizeof(reference)) == 0x29B1, "CRC-16/CCITT-FALSE known vector");
+    expect(gc::crc16(reference, sizeof(reference)) == 0x29B1, "known CRC vector");
     gc::Packet p = samplePacket(), decoded;
     uint8_t bytes[gc::kWireSize];
     gc::encode(p, bytes);
-    expect(sizeof(bytes) == 32, "fixed NRF payload size");
-    expect(bytes[0] == 'G' && bytes[1] == 'C' && bytes[2] == 1, "magic and version");
-    expect(bytes[4] == 0x78 && bytes[7] == 0x12 && bytes[8] == 4 && bytes[11] == 1,
-           "wire byte order independent of MCU struct alignment");
-    expect(bytes[16] == 220 && bytes[17] == 0 && bytes[23] == 255 && bytes[24] == 255,
-           "two sensor offsets and invalid sentinel");
-    expect(gc::decode(bytes, sizeof(bytes), decoded), "roundtrip packet accepted");
-    expect(decoded.bootId == p.bootId && decoded.sequence == p.sequence, "32-bit identity roundtrip");
-    expect(decoded.sensors[1].distanceMm == gc::kInvalidMm, "invalid distance survives transmission");
+    expect(sizeof(bytes) == 32 && bytes[2] == 2, "v2 fixed 32-byte payload");
+    expect(bytes[4] == 0x78 && bytes[7] == 0x12 && bytes[8] == 4, "little-endian identity");
+    expect(bytes[16] == 220 && bytes[17] == 0 && gc::get16(bytes + 20) == 10000,
+           "single combined mean and actual window duration offsets");
+    expect(bytes[22] == 10 && bytes[23] == 8 && bytes[24] == 8 && bytes[25] == 10,
+           "group diagnostics offsets");
+    expect(gc::decode(bytes, sizeof(bytes), decoded), "v2 packet accepted");
+    expect(decoded.measurement.distanceMm == 220 && decoded.sequence == p.sequence, "roundtrip");
     for (size_t index = 0; index < gc::kWireSize; ++index) {
         for (uint8_t bit = 0; bit < 8; ++bit) {
             bytes[index] ^= 1 << bit;
-            expect(!gc::decode(bytes, sizeof(bytes), decoded), "reject every single-bit corruption");
+            expect(!gc::decode(bytes, sizeof(bytes), decoded), "single bit corruption rejected");
             bytes[index] ^= 1 << bit;
         }
     }
-    expect(!gc::decode(bytes, 31, decoded), "truncated payload rejected");
+    bytes[2] = 1; gc::put16(bytes + 30, gc::crc16(bytes, 30));
+    expect(!gc::decode(bytes, sizeof(bytes), decoded), "old v1 rejected even with valid CRC");
+    gc::encode(p, bytes);
+    expect(!gc::decode(bytes, 31, decoded), "truncated packet rejected");
     p.nodeId = 4; gc::encode(p, bytes);
     expect(!gc::decode(bytes, sizeof(bytes), decoded), "unknown node rejected");
     p = samplePacket(); p.bootId = 0; gc::encode(p, bytes);
-    expect(!gc::decode(bytes, sizeof(bytes), decoded), "zero boot ID rejected");
-    p = samplePacket(); p.sensors[0].validSamples = 2; gc::encode(p, bytes);
-    expect(!gc::decode(bytes, sizeof(bytes), decoded), "CRC-valid inconsistent sensor rejected");
-    p = samplePacket(); p.sensors[0].status = static_cast<gc::SensorStatus>(99); gc::encode(p, bytes);
-    expect(!gc::decode(bytes, sizeof(bytes), decoded), "unknown sensor state rejected");
-    p = samplePacket(); p.sensors[1].spreadMm = 0; gc::encode(p, bytes);
-    expect(!gc::decode(bytes, sizeof(bytes), decoded), "zero valid count requires invalid spread");
+    expect(!gc::decode(bytes, sizeof(bytes), decoded), "zero boot rejected");
+    p = samplePacket(); p.windowDurationMs = 0; gc::encode(p, bytes);
+    expect(!gc::decode(bytes, sizeof(bytes), decoded), "missing duration rejected");
+    p = samplePacket(); p.measurement.status = gc::MeasurementStatus::Ok; gc::encode(p, bytes);
+    expect(!gc::decode(bytes, sizeof(bytes), decoded), "incomplete sample set cannot claim ok");
+    p = samplePacket(); p.measurement.validPairs = 5; gc::encode(p, bytes);
+    expect(!gc::decode(bytes, sizeof(bytes), decoded), "inconsistent paired sample counts rejected");
+    p = samplePacket(); p.measurement.errorMasks[0] = 0; gc::encode(p, bytes);
+    expect(!gc::decode(bytes, sizeof(bytes), decoded), "failed samples require error reason");
+    p = samplePacket(); p.measurement = summary(200, 240, 0); gc::encode(p, bytes);
+    expect(gc::decode(bytes, sizeof(bytes), decoded) && decoded.measurement.distanceMm == gc::kInvalidMm,
+           "invalid summary remains invalid through protocol");
 }
 void bootAndTimerTests() {
     uint8_t slot[gc::kBootSlotSize];
@@ -109,19 +125,19 @@ void bootAndTimerTests() {
 } // namespace
 
 int main(int argc, char** argv) {
-    filterTests(); protocolTests(); bootAndTimerTests();
+    measurementTests(); protocolTests(); bootAndTimerTests();
     char json[1024];
     gc::GatewayMetadata meta;
-    meta.gatewayBootId = 17; meta.receivedMs = 1000; meta.ageMs = 5;
-    expect(gc::toJson(samplePacket(), meta, json, sizeof(json)), "gateway JSON fits output buffer");
+    meta.gatewayBootId = 17; meta.receivedMs = 11000; meta.ageMs = 5;
+    expect(gc::toJson(samplePacket(), meta, json, sizeof(json)), "gateway JSON fits buffer");
+    expect(std::strstr(json, "\"measurement\"") && !std::strstr(json, "\"sensors\""),
+           "wire JSON exposes a single mean only");
     char small[8];
-    expect(!gc::toJson(samplePacket(), meta, small, sizeof(small)), "reject JSON truncation");
+    expect(!gc::toJson(samplePacket(), meta, small, sizeof(small)), "truncated JSON rejected");
     if (argc == 2) {
-        std::ofstream file(argv[1]);
-        file << json;
-        expect(file.good(), "write production gateway JSON fixture");
+        std::ofstream file(argv[1]); file << json;
+        expect(file.good(), "write production JSON fixture");
     }
     std::cout << "PASS " << checks << " native checks\n";
     return 0;
 }
-

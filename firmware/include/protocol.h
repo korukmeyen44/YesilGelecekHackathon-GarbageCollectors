@@ -3,14 +3,15 @@
 #include "measurement.h"
 
 namespace gc {
-constexpr uint8_t kProtocolVersion = 1;
+constexpr uint8_t kProtocolVersion = 2;
 constexpr size_t kWireSize = 32;
 struct Packet {
     uint8_t nodeId = 0;
     uint32_t bootId = 0;
     uint32_t sequence = 0;
     uint32_t measuredUptimeMs = 0;
-    SensorSummary sensors[2];
+    uint16_t windowDurationMs = 0;
+    MeasurementSummary measurement;
 };
 inline void put16(uint8_t* out, uint16_t v) {
     out[0] = static_cast<uint8_t>(v); out[1] = static_cast<uint8_t>(v >> 8);
@@ -36,18 +37,26 @@ inline uint16_t crc16(const uint8_t* data, size_t length) {
     }
     return crc;
 }
-inline bool validSummary(const SensorSummary& s) {
-    if (s.validSamples > kWindowSamples || (s.errorMask & 0xF0)) return false;
-    if (!s.validSamples && s.spreadMm != kInvalidMm) return false;
-    if (s.validSamples && s.spreadMm == kInvalidMm) return false;
+inline bool validSummary(const MeasurementSummary& s) {
+    if (s.attemptedPairs != kMeasurementPairs || s.validPairs > kMeasurementPairs) return false;
+    for (uint8_t i = 0; i < 2; ++i) {
+        if (s.validSamples[i] > kMeasurementPairs || s.validSamples[i] < s.validPairs ||
+            (s.errorMasks[i] & 0xF0)) return false;
+        if ((s.validSamples[i] == kMeasurementPairs) != (s.errorMasks[i] == 0)) return false;
+    }
+    if (s.validSamples[0] + s.validSamples[1] > kMeasurementPairs + s.validPairs) return false;
+    if (!s.validPairs && s.spreadMm != kInvalidMm) return false;
+    if (s.validPairs && (s.spreadMm == kInvalidMm || s.spreadMm > kMaxDistanceMm - kMinDistanceMm)) return false;
     switch (s.status) {
-        case SensorStatus::Ok:
-            return s.validSamples >= kMinValidSamples && s.distanceMm >= kMinDistanceMm &&
-                   s.distanceMm <= kMaxDistanceMm && s.spreadMm <= kMaxSpreadMm;
-        case SensorStatus::TooFew:
-            return s.validSamples < kMinValidSamples && s.distanceMm == kInvalidMm;
-        case SensorStatus::Unstable:
-            return s.validSamples >= kMinValidSamples && s.distanceMm == kInvalidMm &&
+        case MeasurementStatus::Ok:
+        case MeasurementStatus::Degraded:
+            return s.validPairs >= kMinValidPairs && s.distanceMm >= kMinDistanceMm &&
+                   s.distanceMm <= kMaxDistanceMm && s.spreadMm <= kMaxSpreadMm &&
+                   ((s.status == MeasurementStatus::Ok) == (s.validPairs == kMeasurementPairs));
+        case MeasurementStatus::TooFew:
+            return s.validPairs < kMinValidPairs && s.distanceMm == kInvalidMm;
+        case MeasurementStatus::Unstable:
+            return s.validPairs >= kMinValidPairs && s.distanceMm == kInvalidMm &&
                    s.spreadMm > kMaxSpreadMm;
     }
     return false;
@@ -56,12 +65,13 @@ inline void encode(const Packet& p, uint8_t* out) {
     out[0] = 'G'; out[1] = 'C'; out[2] = kProtocolVersion; out[3] = p.nodeId;
     put32(out + 4, p.bootId); put32(out + 8, p.sequence);
     put32(out + 12, p.measuredUptimeMs);
-    for (uint8_t i = 0; i < 2; ++i) {
-        uint8_t* s = out + 16 + i * 7;
-        put16(s, p.sensors[i].distanceMm); put16(s + 2, p.sensors[i].spreadMm);
-        s[4] = p.sensors[i].validSamples;
-        s[5] = static_cast<uint8_t>(p.sensors[i].status); s[6] = p.sensors[i].errorMask;
-    }
+    const MeasurementSummary& s = p.measurement;
+    put16(out + 16, s.distanceMm); put16(out + 18, s.spreadMm);
+    put16(out + 20, p.windowDurationMs);
+    out[22] = s.attemptedPairs; out[23] = s.validPairs;
+    out[24] = s.validSamples[0]; out[25] = s.validSamples[1];
+    out[26] = static_cast<uint8_t>(s.status);
+    out[27] = s.errorMasks[0]; out[28] = s.errorMasks[1]; out[29] = 0;
     put16(out + 30, crc16(out, 30));
 }
 inline bool decode(const uint8_t* data, size_t length, Packet& output) {
@@ -70,16 +80,16 @@ inline bool decode(const uint8_t* data, size_t length, Packet& output) {
     Packet candidate;
     candidate.nodeId = data[3]; candidate.bootId = get32(data + 4);
     candidate.sequence = get32(data + 8); candidate.measuredUptimeMs = get32(data + 12);
-    if (!candidate.nodeId || candidate.nodeId > kMaxNodeId || !candidate.bootId) return false;
-    for (uint8_t i = 0; i < 2; ++i) {
-        const uint8_t* s = data + 16 + i * 7;
-        candidate.sensors[i].distanceMm = get16(s);
-        candidate.sensors[i].spreadMm = get16(s + 2);
-        candidate.sensors[i].validSamples = s[4];
-        candidate.sensors[i].status = static_cast<SensorStatus>(s[5]);
-        candidate.sensors[i].errorMask = s[6];
-        if (!validSummary(candidate.sensors[i])) return false;
-    }
+    candidate.windowDurationMs = get16(data + 20);
+    if (!candidate.nodeId || candidate.nodeId > kMaxNodeId || !candidate.bootId ||
+        !candidate.windowDurationMs || candidate.windowDurationMs > kMaxWindowMs || data[29]) return false;
+    MeasurementSummary& s = candidate.measurement;
+    s.distanceMm = get16(data + 16); s.spreadMm = get16(data + 18);
+    s.attemptedPairs = data[22]; s.validPairs = data[23];
+    s.validSamples[0] = data[24]; s.validSamples[1] = data[25];
+    s.status = static_cast<MeasurementStatus>(data[26]);
+    s.errorMasks[0] = data[27]; s.errorMasks[1] = data[28];
+    if (!validSummary(s)) return false;
     output = candidate;
     return true;
 }

@@ -55,7 +55,7 @@ def loads(text):
 def validate_payload(p):
     if not isinstance(p, dict):
         raise ValidationError("JSON object required")
-    integer(p.get("version"), "version", 1, 1)
+    integer(p.get("version"), "version (v2 firmware required)", 2, 2)
     if p.get("source") not in ("rf", "simulator"):
         raise ValidationError("source must be rf or simulator")
     integer(p.get("node_id"), "node_id", 1, 3)
@@ -68,34 +68,44 @@ def validate_payload(p):
     for field in ("http_dropped_total", "serial_dropped_total", "rf_rejected_total"):
         if field in p:
             integer(p[field], field)
-    sensors = p.get("sensors")
-    if not isinstance(sensors, list) or len(sensors) != 2:
-        raise ValidationError("Exactly two sensor summaries required")
-    for s in sensors:
-        if not isinstance(s, dict):
-            raise ValidationError("Sensor summary must be an object")
-        count = integer(s.get("valid_samples"), "valid_samples", 0, 5)
-        integer(s.get("error_mask"), "error_mask", 0, 15)
-        spread = s.get("spread_mm")
-        if count == 0:
-            if spread is not None:
-                raise ValidationError("No echoes requires null spread")
-        else:
-            integer(spread, "spread_mm", 0, 3980)
-        status = s.get("status")
-        if status == "ok":
-            integer(s.get("distance_mm"), "distance_mm", 20, 4000)
-            if count < 3 or spread > 80:
-                raise ValidationError("ok requires >=3 echoes and spread <=80 mm")
-        elif status in ("too_few", "unstable"):
-            if s.get("distance_mm") is not None:
-                raise ValidationError("Invalid measurement requires null distance")
-            if status == "too_few" and count >= 3:
-                raise ValidationError("too_few requires <3 echoes")
-            if status == "unstable" and (count < 3 or spread <= 80):
-                raise ValidationError("unstable requires >=3 echoes and spread >80 mm")
-        else:
-            raise ValidationError("Unknown sensor status")
+    if "sensors" in p:
+        raise ValidationError("v2 accepts one combined measurement, not separate sensor distances")
+    m = p.get("measurement")
+    if not isinstance(m, dict):
+        raise ValidationError("One combined measurement object required")
+    attempted = integer(m.get("attempted_pairs"), "attempted_pairs", 10, 10)
+    count = integer(m.get("valid_pairs"), "valid_pairs", 0, attempted)
+    integer(m.get("window_duration_ms"), "window_duration_ms", 1, 60000)
+    counts, errors = m.get("valid_samples"), m.get("error_masks")
+    if not isinstance(counts, list) or len(counts) != 2 or not isinstance(errors, list) or len(errors) != 2:
+        raise ValidationError("Two diagnostic sample counts/error masks required")
+    for n, error in zip(counts, errors):
+        integer(n, "valid_samples", count, attempted)
+        integer(error, "error_mask", 0, 15)
+        if (n == attempted) != (error == 0):
+            raise ValidationError("Failed readings must carry an error mask")
+    if sum(counts) > attempted + count:
+        raise ValidationError("Inconsistent paired sample counts")
+    spread = m.get("spread_mm")
+    if count == 0:
+        if spread is not None:
+            raise ValidationError("No valid pairs requires null spread")
+    else:
+        integer(spread, "spread_mm", 0, 3980)
+    status = m.get("status")
+    if status in ("ok", "degraded"):
+        integer(m.get("distance_mm"), "distance_mm", 20, 4000)
+        if count < 6 or spread > 80 or ((status == "ok") != (count == attempted)):
+            raise ValidationError("Accepted mean requires >=6 stable pairs; ok requires all 10")
+    elif status in ("too_few", "unstable"):
+        if m.get("distance_mm") is not None:
+            raise ValidationError("Invalid measurement requires null distance")
+        if status == "too_few" and count >= 6:
+            raise ValidationError("too_few requires <6 valid pairs")
+        if status == "unstable" and (count < 6 or spread <= 80):
+            raise ValidationError("unstable requires >=6 pairs and spread >80 mm")
+    else:
+        raise ValidationError("Unknown measurement status")
     return p
 
 
@@ -106,8 +116,7 @@ def load_calibration(path):
     if not config["calibration_id"]:
         raise ValidationError("calibration_id must not be empty")
     for key, minimum, maximum, default in (
-        ("stale_after_ms", 1000, 60000, 15000),
-        ("disagreement_percent", 1, 100, 20),
+        ("stale_after_ms", 25000, 60000, 35000),
         ("jump_percent", 1, 100, 25),
         ("confirmation_cycles", 2, 10, 3),
         ("candidate_tolerance_percent", 1, 100, 8),
@@ -121,16 +130,13 @@ def load_calibration(path):
             raise ValidationError("Unknown node in calibration")
         if type(node.get("calibrated")) is not bool:
             raise ValidationError("calibrated boolean required")
-        sensors = node.get("sensors")
-        if not isinstance(sensors, list) or len(sensors) != 2:
-            raise ValidationError("Two independent sensor calibrations required")
-        for sensor in sensors:
-            if not isinstance(sensor, dict):
-                raise ValidationError("Sensor calibration must be an object")
-            full = integer(sensor.get("full_mm"), "full_mm", 20, 3999)
-            integer(sensor.get("empty_mm"), "empty_mm", full + 1, 4000)
-            sensor["geometry_margin_mm"] = integer(sensor.get("geometry_margin_mm", 50),
-                                                     "geometry_margin_mm", 0, 500)
+        reference = node.get("measurement")
+        if not isinstance(reference, dict):
+            raise ValidationError("v2 requires one measurement calibration per bin; recalibrate the combined mean")
+        full = integer(reference.get("full_mm"), "full_mm", 20, 3999)
+        integer(reference.get("empty_mm"), "empty_mm", full + 1, 4000)
+        reference["geometry_margin_mm"] = integer(reference.get("geometry_margin_mm", 50),
+                                                 "geometry_margin_mm", 0, 500)
     return config
 
 
@@ -138,35 +144,20 @@ def analyze(payload, calibration):
     node = calibration["nodes"].get(str(payload["node_id"]))
     if node is None:
         raise ValidationError("Node not configured in calibration")
-    values, statuses = [], []
-    for summary, reference in zip(payload["sensors"], node["sensors"]):
-        value = None
-        status = summary["status"]
-        if status == "ok":
-            distance = summary["distance_mm"]
-            if distance > reference["empty_mm"] + reference["geometry_margin_mm"]:
-                status = "outside_geometry"
-            else:
-                value = round(max(0.0, min(100.0, 100 *
-                    (reference["empty_mm"] - distance) /
-                    (reference["empty_mm"] - reference["full_mm"]))), 1)
-        values.append(value)
-        statuses.append(status)
-    available = [value for value in values if value is not None]
-    quality = "invalid"
-    fill = None
+    measurement, reference = payload["measurement"], node["measurement"]
+    quality, fill = "invalid", None
     if not node["calibrated"]:
         quality = "uncalibrated"
-        values = [None, None]
-    elif len(available) == 2:
-        if abs(available[0] - available[1]) > calibration["disagreement_percent"]:
-            quality = "sensor_disagreement"
+    elif measurement["status"] in ("ok", "degraded"):
+        distance = measurement["distance_mm"]
+        if distance > reference["empty_mm"] + reference["geometry_margin_mm"]:
+            quality = "outside_geometry"
         else:
-            quality, fill = "ok", round(sum(available) / 2, 1)
-    elif len(available) == 1:
-        quality, fill = "degraded", available[0]
+            fill = round(max(0.0, min(100.0, 100 *
+                (reference["empty_mm"] - distance) /
+                (reference["empty_mm"] - reference["full_mm"]))), 1)
+            quality = measurement["status"]
     return {"measurement_quality": quality, "fill_percent": fill,
-            "sensor_fill_percent": values, "sensor_status": statuses,
             "calibration_id": calibration["calibration_id"]}
 
 
@@ -176,8 +167,8 @@ def newer(candidate, previous):
 
 
 def measurement_identity(payload):
-    return {key: payload[key] for key in
-            ("version", "source", "node_id", "boot_id", "sequence", "measured_uptime_ms", "sensors")}
+    return {key: payload.get(key) for key in
+            ("version", "source", "node_id", "boot_id", "sequence", "measured_uptime_ms", "measurement")}
 
 
 class Store:
@@ -270,7 +261,7 @@ class Store:
             state["pending"] = None
         state.update(node_id=p["node_id"], boot_id=p["boot_id"], sequence=p["sequence"],
                      source=p["source"], received_at=now, observed_at=observed, result=result,
-                     sensors=p["sensors"], measured_uptime_ms=p["measured_uptime_ms"],
+                     measurement=p["measurement"], measured_uptime_ms=p["measured_uptime_ms"],
                      gateway_id=p["gateway_id"], gateway_boot_id=p["gateway_boot_id"])
         return state
 
@@ -285,7 +276,7 @@ class Store:
             result = copy.deepcopy(state["result"])
             result.update(node_id=state["node_id"], boot_id=state["boot_id"],
                           sequence=state["sequence"], source=state["source"], age_ms=age_ms,
-                          sensors=state.get("sensors"),
+                          measurement=state.get("measurement"),
                           measured_uptime_ms=state.get("measured_uptime_ms"),
                           gateway_id=state.get("gateway_id"), gateway_boot_id=state.get("gateway_boot_id"),
                           freshness="stale" if age_ms > self.calibration["stale_after_ms"] else "fresh",

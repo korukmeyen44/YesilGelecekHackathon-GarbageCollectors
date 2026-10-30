@@ -6,24 +6,30 @@ import time
 from urllib.request import Request, urlopen
 
 
-def sensor(distance, status="ok"):
-    return {"distance_mm": distance, "spread_mm": 4 if status == "ok" else None,
-            "valid_samples": 5 if status == "ok" else 0, "status": status,
-            "error_mask": 0 if status == "ok" else 1}
+def measurement(distance, status="ok"):
+    partial = status == "degraded"
+    valid_pairs = 8 if partial else (10 if status == "ok" else 0)
+    return {"distance_mm": distance, "spread_mm": 4 if valid_pairs else None,
+            "attempted_pairs": 10, "valid_pairs": valid_pairs,
+            "valid_samples": [valid_pairs, 10] if partial else [valid_pairs, valid_pairs],
+            "status": status, "error_masks": [1, 0] if partial else ([0, 0] if valid_pairs else [1, 1]),
+            "window_duration_ms": 10000}
 
 
 def scenario(boot_id):
-    # Repeat persistent level changes three times to exercise confirmation.
-    distances = [(400, 400), (220, 220), (220, 220), (220, 220),
-                 (None, 220), (None, None), (50, 390),
-                 (40, 40), (40, 40), (40, 40),
-                 (400, 400), (400, 400), (400, 400)]
-    for sequence, pair in enumerate(distances, 1):
-        yield {"version": 1, "source": "simulator", "node_id": 1, "boot_id": boot_id,
-               "sequence": sequence, "measured_uptime_ms": sequence * 4000,
+    values = [(400, "ok"), (220, "ok"), (220, "ok"), (220, "ok"),
+              (220, "degraded"), (None, "too_few"), (None, "unstable"),
+              (40, "ok"), (40, "ok"), (40, "ok"),
+              (400, "ok"), (400, "ok"), (400, "ok")]
+    for sequence, (distance, status) in enumerate(values, 1):
+        summary = measurement(distance, status)
+        if status == "unstable":
+            summary.update(spread_mm=200, valid_pairs=10, valid_samples=[10, 10], error_masks=[0, 0])
+        yield {"version": 2, "source": "simulator", "node_id": 1, "boot_id": boot_id,
+               "sequence": sequence, "measured_uptime_ms": sequence * 10000,
                "gateway_id": 1, "gateway_boot_id": boot_id,
-               "received_gateway_ms": sequence * 4000, "age_ms": 0,
-               "sensors": [sensor(d, "ok" if d is not None else "too_few") for d in pair]}
+               "received_gateway_ms": sequence * 10000, "age_ms": 0,
+               "measurement": summary}
 
 
 def main():

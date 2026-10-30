@@ -3,77 +3,87 @@
 
 namespace gc {
 constexpr uint16_t kInvalidMm = 0xFFFF;
-enum class SensorStatus : uint8_t { Ok = 0, TooFew = 1, Unstable = 2 };
-enum SampleError : uint8_t {
-    Timeout = 1, TooNear = 2, TooFar = 4, EchoStuckHigh = 8
-};
+enum class MeasurementStatus : uint8_t { Ok = 0, TooFew = 1, Unstable = 2, Degraded = 3 };
+enum SampleError : uint8_t { Timeout = 1, TooNear = 2, TooFar = 4, EchoStuckHigh = 8 };
 
-struct SensorSummary {
+struct Reading {
     uint16_t distanceMm = kInvalidMm;
-    uint16_t spreadMm = kInvalidMm;
-    uint8_t validSamples = 0;
-    SensorStatus status = SensorStatus::TooFew;
     uint8_t errorMask = 0;
 };
+inline Reading invalidReading(uint8_t error) {
+    Reading r; r.errorMask = error; return r;
+}
+inline Reading readingFromDistance(uint16_t mm) {
+    if (mm < kMinDistanceMm) return invalidReading(TooNear);
+    if (mm > kMaxDistanceMm) return invalidReading(TooFar);
+    Reading r; r.distanceMm = mm; return r;
+}
+inline Reading readingFromDuration(uint32_t microseconds) {
+    if (!microseconds) return invalidReading(Timeout);
+    if (microseconds > 30000UL) return invalidReading(TooFar);
+    return readingFromDistance(static_cast<uint16_t>((microseconds * 343UL + 1000UL) / 2000UL));
+}
 
-inline const char* statusName(SensorStatus status) {
+struct MeasurementSummary {
+    uint16_t distanceMm = kInvalidMm;
+    uint16_t spreadMm = kInvalidMm;
+    uint8_t attemptedPairs = 0;
+    uint8_t validPairs = 0;
+    uint8_t validSamples[2] = {};
+    MeasurementStatus status = MeasurementStatus::TooFew;
+    uint8_t errorMasks[2] = {};
+};
+inline const char* statusName(MeasurementStatus status) {
     switch (status) {
-        case SensorStatus::Ok: return "ok";
-        case SensorStatus::TooFew: return "too_few";
-        case SensorStatus::Unstable: return "unstable";
+        case MeasurementStatus::Ok: return "ok";
+        case MeasurementStatus::TooFew: return "too_few";
+        case MeasurementStatus::Unstable: return "unstable";
+        case MeasurementStatus::Degraded: return "degraded";
     }
     return "unknown";
 }
 
-class SampleWindow {
+class MeanWindow {
 public:
-    void reset() { count_ = 0; errors_ = 0; }
-    void addError(uint8_t error) { errors_ |= error; }
-    void addDistance(uint16_t mm) {
-        if (mm < kMinDistanceMm) { errors_ |= TooNear; return; }
-        if (mm > kMaxDistanceMm) { errors_ |= TooFar; return; }
-        if (count_ < kWindowSamples) values_[count_++] = mm;
+    void reset() {
+        summary_ = MeasurementSummary(); sumMm_ = 0; minPairSum_ = 0xFFFF; maxPairSum_ = 0;
     }
-    void addEchoDuration(uint32_t microseconds) {
-        if (microseconds == 0) { errors_ |= Timeout; return; }
-        // Speed of sound assumed 343 m/s. Keep the multiply in 32 bits.
-        if (microseconds > 30000UL) { errors_ |= TooFar; return; }
-        addDistance(static_cast<uint16_t>((microseconds * 343UL + 1000UL) / 2000UL));
-    }
-    SensorSummary summarize() const {
-        SensorSummary result;
-        result.validSamples = count_;
-        result.errorMask = errors_;
-        if (!count_) return result;
-        uint16_t sorted[kWindowSamples];
-        for (uint8_t i = 0; i < count_; ++i) {
-            sorted[i] = values_[i];
-            for (uint8_t j = i; j > 0 && sorted[j] < sorted[j - 1]; --j) {
-                const uint16_t tmp = sorted[j];
-                sorted[j] = sorted[j - 1];
-                sorted[j - 1] = tmp;
-            }
+    bool complete() const { return summary_.attemptedPairs == kMeasurementPairs; }
+    void addPair(const Reading& first, const Reading& second) {
+        if (complete()) return;
+        ++summary_.attemptedPairs;
+        const Reading readings[2] = {first, second};
+        for (uint8_t i = 0; i < 2; ++i) {
+            summary_.errorMasks[i] |= readings[i].errorMask;
+            if (readings[i].distanceMm != kInvalidMm) ++summary_.validSamples[i];
         }
-        // With all five echoes, ignore one extreme at each end for spread only.
-        // With three/four echoes, require the entire surviving set to agree.
-        const uint8_t low = count_ == 5 ? 1 : 0;
-        const uint8_t high = count_ == 5 ? 3 : count_ - 1;
-        result.spreadMm = sorted[high] - sorted[low];
-        if (count_ < kMinValidSamples) return result;
+        // Equal sensor weighting: never replace a two-sensor pair with a lone echo.
+        if (first.distanceMm == kInvalidMm || second.distanceMm == kInvalidMm) return;
+        const uint16_t pairSum = first.distanceMm + second.distanceMm;
+        sumMm_ += pairSum;
+        ++summary_.validPairs;
+        if (pairSum < minPairSum_) minPairSum_ = pairSum;
+        if (pairSum > maxPairSum_) maxPairSum_ = pairSum;
+    }
+    MeasurementSummary summarize() const {
+        MeasurementSummary result = summary_;
+        if (result.validPairs) result.spreadMm = (maxPairSum_ - minPairSum_ + 1) / 2;
+        if (!complete() || result.validPairs < kMinValidPairs) return result;
         if (result.spreadMm > kMaxSpreadMm) {
-            result.status = SensorStatus::Unstable;
+            result.status = MeasurementStatus::Unstable;
             return result;
         }
-        result.status = SensorStatus::Ok;
-        result.distanceMm = count_ % 2 ? sorted[count_ / 2] :
-            static_cast<uint16_t>((static_cast<uint32_t>(sorted[count_ / 2 - 1]) +
-                                   sorted[count_ / 2]) / 2);
+        const uint8_t denominator = result.validPairs * 2;
+        // Arithmetic mean of complete pairs; round once after accumulation.
+        result.distanceMm = static_cast<uint16_t>((sumMm_ + denominator / 2) / denominator);
+        result.status = result.validPairs == kMeasurementPairs ?
+            MeasurementStatus::Ok : MeasurementStatus::Degraded;
         return result;
     }
 private:
-    uint16_t values_[kWindowSamples] = {};
-    uint8_t count_ = 0;
-    uint8_t errors_ = 0;
+    MeasurementSummary summary_;
+    uint32_t sumMm_ = 0;
+    uint16_t minPairSum_ = 0xFFFF;
+    uint16_t maxPairSum_ = 0;
 };
 } // namespace gc
-

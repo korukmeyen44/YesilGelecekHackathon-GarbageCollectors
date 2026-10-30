@@ -1,76 +1,94 @@
-# Veri protokolü ve ölçüm algoritması
+# Tek ortalama protokolü ve ölçüm algoritması
 
-## Ölçüm penceresi
+## Sürüm ve amaç
 
-Uno, sensör 1 ve sensör 2'yi sırayla toplam 10 kez tetikler. Her okuma sonrası en az 70 ms bekler. Yankı okuması, yapılandırılan üst mesafeye göre hesaplanan ve varsayılan 1200 mm için yaklaşık 8 ms olan zaman aşımıyla sınırlandırılır. Yeni ölçüm, gönderim denemeleri bittikten 3000 + 100–599 ms sonra başlar. Tam pencere ve yeniden denemeler nedeniyle bu süre paketler arasındaki kesin süre değildir.
+Bu belge protokol v2'yi tanımlar. İki sensörün ayrı mesafeleri kutu firmware'inde aritmetik ortalamaya dönüştürülür. Bilgisayar tek ortalama mesafeyi kalibre ederek yaklaşık doluluk hesaplar. V1'in iki mesafe/medyan düzeni bu sürümde kullanılmaz; bütün uçlar birlikte güncellenmelidir.
 
-Ses hızı sabit 343 m/s kabul edilir. Mesafe milimetre cinsinden tam sayıya yuvarlanır. Sıcaklık telafisi yoktur; milimetre birimi milimetre düzeyinde saha doğruluğu iddiası değildir. Nominal alt sınır 20 mm, varsayılan üst sınır 1200 mm'dir.
+## Grup büyüklüğü ve zamanlama
 
-Her sensörde geçerli mesafeler sıralanır. En az üç örnek gereklidir. Beş geçerli örnekte yayılım ikinci ve dördüncü değer arasındaki farktır; tek uç değerler bu yayılım hesabından çıkarılır. Üç/dört örnekte yayılım tüm geçerli aralıktır. Yayılım 80 mm'den büyükse `unstable` üretilir ve kabul edilmiş mesafe gönderilmez. Eşikler başlangıç ayarıdır; gerçek malzemelerle doğrulanmalıdır.
+Bir grup 10 çift, toplam 20 okuma girişimidir. Sensörler dönüşümlü tetiklenir. Grubun ilk okumasından önce ve her sonraki okumadan önce, önceki okuma tamamlandıktan itibaren 425–575 ms dahil rastgele beklenir. İki tetikleme aynı anda yapılmaz. Kutuların başlangıcı kutu kimliği ve rastgele sapmayla ayrılır; ayrı kutular arasında merkezi akustik zamanlama yoktur.
 
-`valid_samples`, nominal aralıktaki yankı sayısıdır; tek başına doğru çöp yüzeyinin ölçüldüğünü kanıtlamaz. Sistem kararlı biçimde yanlış yüzeyi görebilir.
+Beklemelerin beklenen toplamı `20 × 500 = 10000 ms` olur. Alt/üst sınır `8500–11500 ms` olup yankı süreleri ve döngü yükü buna eklenir. Zamanlama gecikirse ölçümler peş peşe hızlandırılarak telafi edilmez. RF gönderiminden sonra yeni grup başlar; önceki 3 saniyelik ek bekleme kaldırıldı. RF tekrarları rapor aralığını uzatabilir. Gerçek grup süresi pakette bulunur. 60 saniyeyi aşmış grup atılır ve yeni gruba geçilir.
+
+Ses hızı 343 m/s varsayılır; sıcaklık telafisi yoktur. Mesafe mm cinsindedir; bu birim saha doğruluğu iddiası değildir. Alt sınır 20 mm, yapılandırılmış üst sınır varsayılan 1200 mm'dir. Yankı okuması bu üst sınıra göre yaklaşık 8 ms zaman aşımıyla sınırlandırılır.
+
+## Aritmetik ortalama ve geçerlilik
+
+Her çifti oluşturan iki okumadan biri geçersizse çift ortalamaya katılmaz. Sensörlerin eşit ağırlığını korumak için tek geçerli sensörle çift oluşturulmaz. Geçersiz okumalar sıfır veya boş kutu mesafesi olarak kullanılmaz. Geçersiz denemeler de sabit 10 deneme sınırına dahildir.
+
+```text
+ortalama_mesafe = geçerli çiftlerdeki (sensör1 + sensör2) toplamı / (2 × geçerli çift sayısı)
+```
+
+Toplam 32 bit tutulur; yalnız son sonuç en yakın mm'ye yuvarlanır. Önce çiftleri yuvarlayıp tekrar ortalamak kullanılmaz. En az 6 geçerli çift gerekir. Grup yayılımı, en büyük ve en küçük çift ortalamaları arasındaki farktır; yarım mm farklar muhafazakâr biçimde yukarı yuvarlanır. Yayılım 80 mm'yi aşarsa grup `unstable` olur. Bu, aynı grupta zaman içinde değişimi denetler; iki sensörün birbirinden farklı mesafesini doğrudan reddetmez.
+
+| Durum kodu | JSON durumu | Koşul |
+| --- | --- | --- |
+| 0 | `ok` | 10 geçerli çift ve yayılım en fazla 80 mm |
+| 1 | `too_few` | 6'dan az geçerli çift; kabul edilmiş mesafe yok |
+| 2 | `unstable` | En az 6 geçerli çift fakat yayılım 80 mm'den büyük; mesafe yok |
+| 3 | `degraded` | 6–9 geçerli çift ve yayılım en fazla 80 mm |
+
+Hata maskeleri sensör başına korunur: 1 timeout, 2 alt mesafe sınırının altında, 4 üst mesafe sınırının üzerinde, 8 tetikleme öncesinde Echo HIGH. Maskeler bit düzeyinde birleştirilir. İki ayrı sensör mesafesi veya sensörler arası fark gönderilmez. Bu nedenle bilgisayar v2'de `sensor_disagreement` üretemez.
 
 ## RF paket biçimi
 
-Tüm çok baytlı değerler **little-endian** olarak açıkça kodlanır. C++ struct bellek görüntüsü gönderilmez. Paket tam **32 bayttır**; iki taraf statik payload kullanır.
+Paket tam 32 bayttır. Çok baytlı alanlar little-endian kodlanır; struct bellek görüntüsü gönderilmez.
 
-| Bayt ofseti | Uzunluk | Alan |
+| Ofset | Bayt sayısı | Alan |
 | --- | --- | --- |
 | 0 | 2 | ASCII `GC` |
-| 2 | 1 | Protokol sürümü: 1 |
-| 3 | 1 | Kutu kimliği: 1–3 |
-| 4 | 4 | Kalıcı açılış kimliği; sıfır kullanılmaz |
-| 8 | 4 | Ölçüm sayacı; yeniden denemede değişmez |
-| 12 | 4 | Ölçüm penceresi bitişindeki Uno `millis()` değeri |
-| 16 | 2 | Sensör 1 kabul edilmiş mesafe, mm |
-| 18 | 2 | Sensör 1 yayılım, mm |
-| 20 | 1 | Sensör 1 geçerli örnek sayısı |
-| 21 | 1 | Sensör 1 durumu |
-| 22 | 1 | Sensör 1 örnek hata bitleri |
-| 23 | 2 | Sensör 2 kabul edilmiş mesafe, mm |
-| 25 | 2 | Sensör 2 yayılım, mm |
-| 27 | 1 | Sensör 2 geçerli örnek sayısı |
-| 28 | 1 | Sensör 2 durumu |
-| 29 | 1 | Sensör 2 örnek hata bitleri |
-| 30 | 2 | İlk 30 baytın CRC-16/CCITT-FALSE değeri |
+| 2 | 1 | Sürüm 2 |
+| 3 | 1 | Kutu kimliği 1–3 |
+| 4 | 4 | Kalıcı açılış kimliği, sıfır hariç |
+| 8 | 4 | Grup/mesaj sayacı; tekrar gönderiminde aynı kalır |
+| 12 | 4 | Grubun bittiği Uno `millis()` değeri |
+| 16 | 2 | Tek kabul edilmiş ortalama mesafe, mm |
+| 18 | 2 | Çift ortalamalarının zamansal yayılımı, mm |
+| 20 | 2 | Gerçek grup süresi, ms; 1–60000 |
+| 22 | 1 | Denenen çift sayısı, daima 10 |
+| 23 | 1 | Geçerli çift sayısı, 0–10 |
+| 24 | 1 | Sensör 1 geçerli okuma sayısı, 0–10 |
+| 25 | 1 | Sensör 2 geçerli okuma sayısı, 0–10 |
+| 26 | 1 | Grup durumu |
+| 27 | 1 | Sensör 1 hata maskesi |
+| 28 | 1 | Sensör 2 hata maskesi |
+| 29 | 1 | Ayrılmış alan; sıfır olmalı |
+| 30 | 2 | İlk 30 bayt için CRC-16/CCITT-FALSE |
 
-Mesafe için `65535` geçersiz işaretidir; JSON'da `null` olur. Hiç geçerli örnek yoksa yayılım da `null` olur. Durumlar: **0 `ok`**, **1 `too_few`**, **2 `unstable`**. Hata bitleri: **1 timeout**, **2 alt sınırın altında**, **4 üst sınırın üzerinde**, **8 tetikleme öncesi Echo HIGH**. Bitler birleştirilebilir. Kısmi hata içeren ama yeterli kararlı örneğe sahip pencere `ok` olabilir; hata maskesi korunur.
+Kabul edilmemiş mesafe `65535`, JSON'da `null` olur. Hiç geçerli çift yoksa yayılım da aynı işaretle taşınır. Sensör örnek sayıları çift sayısıyla tutarlı olmalı; başarısız okuma olan sensörün hata maskesi sıfır olmamalıdır. V1 paketler sürüm kontrolünde reddedilir. RF CRC/ACK ve uygulama CRC'si kimlik doğrulaması veya şifreleme sağlamaz.
 
-RF ayrıca donanımsal 16 bit CRC ve ACK kullanır. Uygulama CRC'si yanlış paket biçimini kontrol eder; kimlik doğrulaması veya şifreleme sağlamaz. ACK, bilgisayara kayıt yapıldığını göstermez. Yeniden denemede ACK kaybolmuş olsa da veri ulaşmış olabilir.
+## Kimlik ve yeniden gönderim
 
-## Açılış ve mesaj kimliği
+Kutu + açılış + mesaj sayacı bilgisayarda tekil kimliktir. Uno ilk 288 EEPROM baytını 32 adet commit işaretli açılış kaydı için kullanır. Açılış sayacı ve bit tersi yazılır, commit en son yapılır. Doğrulanamayan yazmada gönderim durur. EEPROM silinmesi veya kart değiştirilmesi eski kimliklerle çakışabilir; bakımda veriyi arşivleyin veya kimlik politikasını güncelleyin.
 
-Uno'nun ilk 288 EEPROM baytı, 32 adet 9 baytlık açılış kaydı için ayrılmıştır. Kayıt; commit işareti, 32 bit sayaç ve sayacın bit tersinden oluşur. Son geçerli kayıttan yeni sayaç türetilir. Önce hedef slot geçersizleştirilir, commit en son yazılır. Yazılan değer doğrulanamazsa veri gönderimi durur.
+RF otomatik ACK ve en fazla üç donanımsal yeniden deneme kullanır; bekleme ayarı kutuya göre farklıdır. Uygulama aynı paketi 50–199 ms rastgele beklemeyle en fazla üç kez göndermeyi dener. ACK yalnız radyo bağlantısına ilişkindir; bilgisayara kalıcı kayıt garantisi değildir. Bilgisayar aynı ölçümü ikinci kez eklemez; aynı kimlikle farklı ölçüm 409 olur. Eski sıra/açılış güncel durumu ilerletmez. Sayaç karşılaştırması 32 bit sarmayı destekler; yarım sayaç aralığından küçük fark varsayılır.
 
-Bu günlük yazmaları slotlara dağıtır; sınırsız EEPROM ömrü veya her güç arızasına karşı garanti sağlamaz. EEPROM silinirse, farklı kart aynı kutu kimliğini devralırsa veya tüm günlük bozulursa kimlikler eski verilerle çakışabilir. Böyle bir bakımda eski veriyi arşivleyip yeni veritabanı açın veya yeni kutu kimliği politikası belirleyin. Normal firmware yüklemesinden sonra da açılış kimliğinin arttığını gözleyin.
+## Gateway ve JSON
 
-Bilgisayarda tekil anahtar `(node_id, boot_id, sequence)` olur. Aynı kimlik ve aynı ölçüm ikinci kayıt oluşturmaz. Aynı kimlikle farklı ölçüm 409 döndürür. Önceki açılıştan veya eski sıradan gelen paketler tarihçede tutulabilir ancak güncel durumu değiştirmez. Sayaç karşılaştırması 32 bit sarmayı destekler; karşılaştırılan sayaçlar arasında 2^31 veya daha fazla fark olmaması varsayılır.
+USB, LCD ve HTTP ayrı görevlerdir; RF döngüsü bunların bitmesini beklemez. Çıkış kuyrukları 24 kayıttır; dolunca en eski kayıt düşürülür ve sayaç artar. HTTP kaydı gateway'de 30 saniyeyi aşarsa atılır. HTTP en fazla dört kez denenir; 408/429 dışındaki 4xx hatalarda tekrar yapılmaz. Kuyruklar RAM'dedir; güç kesilince kaybolur. I2C ekranı erişilemez olduğunda ekran güncellemeleri kapatılır.
 
-## Gateway kuyrukları ve zaman
+JSON v2'de `sensors` dizisi yerine tek `measurement` nesnesi vardır:
 
-RF döngüsü SPI/radyo işlerini yürütür. USB çıktısı, LCD ve HTTP ayrı görevlerdir. Her çıkış kuyruğu 24 kayıttır. Dolu kuyrukta en eski kayıt bırakılır; düşürme sayacı artar. Ağ kapalıyken RF alımı sürer. LCD sonradan erişilemez olursa ekran güncellemeleri kapatılır; diğer işler sürer, yeniden etkinleştirmek için gateway yeniden başlatılır. HTTP kaydı gateway'e gelişinden itibaren 30 saniyeyi aşarsa gönderilmez. HTTP en fazla dört deneme yapar; 408/429 dışındaki 4xx hatalar yeniden denenmez. Güç kesilince RAM kuyrukları kaybolur.
-
-`measured_uptime_ms` Uno saatidir; UTC değildir. `received_gateway_ms` ESP32 saatidir. `age_ms`, ilgili çıktı oluşturulurken gateway'de geçmiş süreyi içerir; USB köprüsü kendi kuyruk/bekleme süresini de ekler. Bilgisayar geliş zamanını UTC olarak kaydeder ve yaklaşık gözlem zamanını `geliş - age_ms` ile hesaplar. Radyo denemesi, ölçüm penceresi, USB sürücüsü ve ağ aktarım gecikmesinin tamamı bu yaşa dahil değildir. Cihaz saatleri senkronize değildir; bu alanlar kesin olay zamanı olarak kullanılmamalıdır.
-
-## Bilgisayardaki doluluk ve durumlar
-
-Her sensör için:
-
-```text
-doluluk = 100 × (boş_mesafe − ölçülen_mesafe) / (boş_mesafe − dolu_mesafe)
+```json
+{"distance_mm":220,"spread_mm":4,"attempted_pairs":10,"valid_pairs":10,"valid_samples":[10,10],"status":"ok","error_masks":[0,0],"window_duration_ms":10000}
 ```
 
-Geçersiz ölçümde hesap yapılmaz. Kutu boş mesafesinin varsayılan 50 mm toleranstan daha üzerinde ölçüm `outside_geometry` sayılır; büyük mesafe sıfıra sıkıştırılarak gizlenmez. Geçerli sonuçlar 0–100'e sınırlandırılır.
+Bu nesne `version`, kutu/açılış/sıra, gateway kimlikleri ve yaş alanlarıyla aynı üst nesnede taşınır. `measured_uptime_ms` ve `received_gateway_ms` farklı cihazların çalışma süreleridir; UTC değildir. `age_ms` çıkış kuyruğunda geçen süreyi içerir; USB köprüsü kendi beklemesini de ekler. Bilgisayar yaklaşık gözlem sonunu `geliş zamanı − yaş` ile hesaplar. Grup içindeki en eski örnek yaklaşık bir grup süresi daha eskidir. RF/USB/ağ aktarım gecikmesinin tamamı bu yaşa dahil değildir.
 
-- Kalibrasyon doğrulanmamışsa `uncalibrated`, doluluk `null`.
-- İki geçerli tahmin arasında 20 yüzde puanından fazla fark varsa `sensor_disagreement`, ortak doluluk `null`.
-- Bir sensör geçerliyse `degraded`; tahmin tek sensörden gelir.
-- İkisi de geçersizse `invalid`, doluluk `null`.
-- Son kabul edilmiş değerden en az 25 yüzde puanlık değişimde üç ardışık uygun ölçüm beklenir. Adaylar ilk adayın ±8 yüzde puanında olmalıdır. Beklerken `change_pending`, güncel doluluk `null` olur; son geçerli değer ayrıca tutulur.
-- Geçersiz pencere, sıra boşluğu, yeni açılış veya uzun veri arası aday sayacını sıfırlar. Kalıcı boşaltma da aynı doğrulamayla kabul edilir.
-- 15 saniyeden eski veri `stale` olur; güncel doluluk `null` gösterilir. İlk gelişte zaten eski olan paket güncel durumu ilerletmez.
+## Bilgisayarda kalibrasyon ve zaman filtresi
 
-Bu kurallar malzemeyi tanımaz. İki sensörün aynı poşet/kartonu görmesi hâlinde yanlış ama uyumlu sonuç mümkündür. Ek sensör olmadan kapak açıklığı veya tam hacim kesin olarak belirlenemez.
+Her kutu için tek `measurement.empty_mm` ve `measurement.full_mm` kalibrasyonu kullanılır. Referanslar sensörlerin son çapraz montajında firmware'in ürettiği ortalamadan ölçülmelidir. Eski iki sensörlü kalibrasyon dosyası v2 için reddedilir.
+
+```text
+doluluk = 100 × (boş_ortalama − ölçülen_ortalama) / (boş_ortalama − dolu_ortalama)
+```
+
+Kalibrasyon doğrulanmamışsa sonuç `uncalibrated` ve yüzde `null` olur. Boş referansı toleranstan fazla aşan mesafe `outside_geometry` sayılır; aksi durumda yüzde 0–100'e sınırlandırılır. Kısmi grubun `degraded` durumu korunur. Ayrı sensör doluluğu veya uyuşmazlığı hesaplanmaz.
+
+Veri yaşı eşiği 35 saniyedir. Büyük doluluk değişikliği için mevcut üç ardışık grup doğrulaması korunur; yaklaşık 30 saniyelik doğrulama süreci oluşabilir. Geçersiz grup, sıra boşluğu, yeni açılış ve uzun veri arası aday sayacını sıfırlar. Kalıcı boşaltma da kabul edilir. Eski/geçersiz durumda güncel yüzde `null`; son kabul edilmiş yüzde ve yaşı ayrıca görünür. Kalibrasyon kimliği değişirse önceki güncel yüzde kullanılamaz.
+
+Çapraz montaj veya ortalama, kararlı yanlış yüzey yankısını kesin olarak düzeltmez. Atık türü, kirlenmenin kesin nedeni, kapak açıklığı ve gerçek hacim bu veriden kesin belirlenemez. Pil voltajı bağlantısı ve deep sleep bu sürümde yoktur.
 
 ## Teknik kaynaklar
 

@@ -18,26 +18,25 @@ inline const char* nullableMm(uint16_t value, char* storage, size_t capacity) {
     return storage;
 }
 inline bool toJson(const Packet& p, const GatewayMetadata& m, char* body, size_t capacity) {
-    char d1[8], d2[8], s1[8], s2[8];
+    char distance[8], spread[8];
+    const MeasurementSummary& s = p.measurement;
     const int length = snprintf(body, capacity,
-        "{\"version\":1,\"source\":\"rf\",\"node_id\":%u,\"boot_id\":%lu,\"sequence\":%lu,"
+        "{\"version\":2,\"source\":\"rf\",\"node_id\":%u,\"boot_id\":%lu,\"sequence\":%lu,"
         "\"measured_uptime_ms\":%lu,\"gateway_id\":%u,\"gateway_boot_id\":%lu,"
         "\"received_gateway_ms\":%lu,\"age_ms\":%lu,"
         "\"http_dropped_total\":%lu,\"serial_dropped_total\":%lu,\"rf_rejected_total\":%lu,"
-        "\"sensors\":[{\"distance_mm\":%s,\"spread_mm\":%s,\"valid_samples\":%u,\"status\":\"%s\",\"error_mask\":%u},"
-        "{\"distance_mm\":%s,\"spread_mm\":%s,\"valid_samples\":%u,\"status\":\"%s\",\"error_mask\":%u}]}",
+        "\"measurement\":{\"distance_mm\":%s,\"spread_mm\":%s,\"attempted_pairs\":%u,"
+        "\"valid_pairs\":%u,\"valid_samples\":[%u,%u],\"status\":\"%s\","
+        "\"error_masks\":[%u,%u],\"window_duration_ms\":%u}}",
         p.nodeId, static_cast<unsigned long>(p.bootId), static_cast<unsigned long>(p.sequence),
         static_cast<unsigned long>(p.measuredUptimeMs), m.gatewayId,
         static_cast<unsigned long>(m.gatewayBootId), static_cast<unsigned long>(m.receivedMs),
         static_cast<unsigned long>(m.ageMs), static_cast<unsigned long>(m.httpDropped),
         static_cast<unsigned long>(m.serialDropped), static_cast<unsigned long>(m.rejected),
-        nullableMm(p.sensors[0].distanceMm, d1, sizeof(d1)),
-        nullableMm(p.sensors[0].spreadMm, s1, sizeof(s1)),
-        p.sensors[0].validSamples, statusName(p.sensors[0].status), p.sensors[0].errorMask,
-        nullableMm(p.sensors[1].distanceMm, d2, sizeof(d2)),
-        nullableMm(p.sensors[1].spreadMm, s2, sizeof(s2)),
-        p.sensors[1].validSamples, statusName(p.sensors[1].status), p.sensors[1].errorMask);
+        nullableMm(s.distanceMm, distance, sizeof(distance)),
+        nullableMm(s.spreadMm, spread, sizeof(spread)), s.attemptedPairs, s.validPairs,
+        s.validSamples[0], s.validSamples[1], statusName(s.status), s.errorMasks[0], s.errorMasks[1],
+        p.windowDurationMs);
     return length > 0 && static_cast<size_t>(length) < capacity;
 }
 } // namespace gc
-

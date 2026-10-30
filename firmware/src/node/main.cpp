@@ -15,7 +15,8 @@ constexpr uint8_t kEcho[2] = {3, 5};
 constexpr uint32_t kEchoTimeoutUs =
     static_cast<uint32_t>(gc::kMaxDistanceMm) * 2000UL / 343UL + 1000UL;
 RF24 radio(9, 10);
-gc::SampleWindow windows[2];
+gc::MeanWindow window;
+gc::Reading firstReading;
 gc::Packet packet;
 uint8_t wire[gc::kWireSize];
 uint8_t sampleIndex = 0;
@@ -28,6 +29,11 @@ uint32_t nextPingMs = 0;
 uint32_t nextSendMs = 0;
 uint32_t nextRadioCheckMs = 0;
 uint32_t ackFailures = 0;
+uint32_t windowStartedMs = 0;
+
+uint16_t nextPingGap() {
+    return gc::pingGapMs(static_cast<uint16_t>(random(0, gc::kPingGapMaxMs - gc::kPingGapMinMs + 1)));
+}
 
 uint32_t nextBootId() {
     uint32_t latest = 0;
@@ -54,30 +60,30 @@ uint32_t nextBootId() {
     return gc::readBootSlot(bytes, verified) && verified == next ? verified : 0;
 }
 
-void sampleSensor(uint8_t index) {
+gc::Reading sampleSensor(uint8_t index) {
     // A high echo before triggering is not a valid new echo.
     if (digitalRead(kEcho[index]) == HIGH) {
-        windows[index].addError(gc::EchoStuckHigh);
-        return;
+        return gc::invalidReading(gc::EchoStuckHigh);
     }
     digitalWrite(kTrig[index], LOW);
     delayMicroseconds(2);
     digitalWrite(kTrig[index], HIGH);
     delayMicroseconds(10);
     digitalWrite(kTrig[index], LOW);
-    windows[index].addEchoDuration(pulseIn(kEcho[index], HIGH, kEchoTimeoutUs));
+    return gc::readingFromDuration(pulseIn(kEcho[index], HIGH, kEchoTimeoutUs));
 }
 
 void reportAttempt(bool ack) {
     Serial.print(F("# measurement bin=")); Serial.print(packet.nodeId);
     Serial.print(F(" boot=")); Serial.print(packet.bootId);
     Serial.print(F(" seq=")); Serial.print(packet.sequence);
-    for (uint8_t i = 0; i < 2; ++i) {
-        Serial.print(i == 0 ? F(" s1=") : F(" s2="));
-        if (packet.sensors[i].distanceMm == gc::kInvalidMm) Serial.print(F("null"));
-        else Serial.print(packet.sensors[i].distanceMm);
-        Serial.print('/'); Serial.print(gc::statusName(packet.sensors[i].status));
-    }
+    Serial.print(F(" mean_mm="));
+    if (packet.measurement.distanceMm == gc::kInvalidMm) Serial.print(F("null"));
+    else Serial.print(packet.measurement.distanceMm);
+    Serial.print('/'); Serial.print(gc::statusName(packet.measurement.status));
+    Serial.print(F(" pairs=")); Serial.print(packet.measurement.validPairs);
+    Serial.print('/'); Serial.print(packet.measurement.attemptedPairs);
+    Serial.print(F(" duration_ms=")); Serial.print(packet.windowDurationMs);
     Serial.print(F(" rf_ack=")); Serial.print(ack ? F("yes") : F("no"));
     Serial.print(F(" failures=")); Serial.println(ackFailures);
 }
@@ -110,21 +116,30 @@ void loop() {
         nextRadioCheckMs = millis() + 5000;
     }
     if (!measuring && !sending && gc::due(now, nextMeasurementMs)) {
-        windows[0].reset(); windows[1].reset();
+        window.reset();
         sampleIndex = 0;
         measuring = true;
-        nextPingMs = now;
+        windowStartedMs = now;
+        nextPingMs = now + nextPingGap();
     }
     if (measuring && gc::due(now, nextPingMs)) {
-        sampleSensor(sampleIndex % 2);
+        const gc::Reading reading = sampleSensor(sampleIndex % 2);
+        if (sampleIndex % 2 == 0) firstReading = reading;
+        else window.addPair(firstReading, reading);
         ++sampleIndex;
-        // After completion, not just after trigger: always leaves a quiet interval.
-        nextPingMs = millis() + gc::kPingGapMs;
-        if (sampleIndex == gc::kWindowSamples * 2) {
+        // Start a fresh random quiet interval after each completed read, no catch-up burst.
+        nextPingMs = millis() + nextPingGap();
+        if (window.complete()) {
             measuring = false;
-            packet.sensors[0] = windows[0].summarize();
-            packet.sensors[1] = windows[1].summarize();
             packet.measuredUptimeMs = millis(); // End of the whole sample window.
+            const uint32_t elapsed = packet.measuredUptimeMs - windowStartedMs;
+            if (elapsed > gc::kMaxWindowMs) {
+                Serial.println(F("# window overrun; discarded"));
+                nextMeasurementMs = millis();
+                return;
+            }
+            packet.windowDurationMs = static_cast<uint16_t>(elapsed);
+            packet.measurement = window.summarize();
             ++packet.sequence;
             gc::encode(packet, wire);
             sending = true;
@@ -139,7 +154,7 @@ void loop() {
         reportAttempt(ack);
         if (ack || sendAttempts >= 3) {
             sending = false;
-            nextMeasurementMs = millis() + gc::kMeasurePeriodMs + random(100, 600);
+            nextMeasurementMs = millis(); // Next group includes its own 20 random waits.
         } else {
             nextSendMs = millis() + 50 + random(0, 150);
         }

@@ -149,10 +149,10 @@ void refreshLcd() {
         const Record& r = lastRecords[displayNode];
         if (millis() - r.receivedMs > gc::kStaleMs) snprintf(row, sizeof(row), "K%u VERI ESKI", r.packet.nodeId);
         else {
-            char d1[8], d2[8];
-            snprintf(row, sizeof(row), "K%u %s/%smm", r.packet.nodeId,
-                gc::nullableMm(r.packet.sensors[0].distanceMm, d1, sizeof(d1)),
-                gc::nullableMm(r.packet.sensors[1].distanceMm, d2, sizeof(d2)));
+            char distance[8];
+            snprintf(row, sizeof(row), "K%u %smm %u/10", r.packet.nodeId,
+                gc::nullableMm(r.packet.measurement.distanceMm, distance, sizeof(distance)),
+                r.packet.measurement.validPairs);
         }
         lcdLine(0, row);
     }

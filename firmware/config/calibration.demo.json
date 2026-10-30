@@ -1,10 +1,31 @@
 {
-  "calibration_id": "SIMULATED-400mm-40mm-v1",
-  "purpose": "SIMULATED DATA ONLY; not a calibration of physical bins",
+  "calibration_id": "SIMULATED-v2-combined-400mm-40mm",
+  "purpose": "SIMULATED DATA ONLY",
   "nodes": {
-    "1": {"calibrated": true, "sensors": [{"empty_mm": 400, "full_mm": 40}, {"empty_mm": 400, "full_mm": 40}]},
-    "2": {"calibrated": true, "sensors": [{"empty_mm": 400, "full_mm": 40}, {"empty_mm": 400, "full_mm": 40}]},
-    "3": {"calibrated": true, "sensors": [{"empty_mm": 400, "full_mm": 40}, {"empty_mm": 400, "full_mm": 40}]}
-  }
+    "1": {
+      "calibrated": true,
+      "measurement": {
+        "empty_mm": 400,
+        "full_mm": 40,
+        "geometry_margin_mm": 50
+      }
+    },
+    "2": {
+      "calibrated": true,
+      "measurement": {
+        "empty_mm": 400,
+        "full_mm": 40,
+        "geometry_margin_mm": 50
+      }
+    },
+    "3": {
+      "calibrated": true,
+      "measurement": {
+        "empty_mm": 400,
+        "full_mm": 40,
+        "geometry_margin_mm": 50
+      }
+    }
+  },
+  "stale_after_ms": 35000
 }
-

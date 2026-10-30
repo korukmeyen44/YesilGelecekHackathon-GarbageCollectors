@@ -25,6 +25,11 @@ def main():
                     "-I", str(ROOT / "include"), str(ROOT / "tests/native/test_core.cpp"),
                     "-o", str(executable)], check=True)
     subprocess.run([str(executable), str(fixture)], check=True)
+    node_executable = build / ("test_node.exe" if os.name == "nt" else "test_node")
+    subprocess.run([compiler, "-std=c++11", "-Wall", "-Wextra", "-Werror", "-pedantic", *link_flags,
+                    "-I", str(ROOT / "tests/native/fakes"), "-I", str(ROOT / "include"),
+                    str(ROOT / "tests/native/test_node.cpp"), "-o", str(node_executable)], check=True)
+    subprocess.run([str(node_executable)], check=True)
     env = dict(os.environ, GC_CPP_JSON_FIXTURE=str(fixture), PYTHONDONTWRITEBYTECODE="1")
     subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(ROOT / "tests/python"),
                     "-v"], cwd=ROOT, env=env, check=True)
