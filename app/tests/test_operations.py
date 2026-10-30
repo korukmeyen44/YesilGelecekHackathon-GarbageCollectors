@@ -66,9 +66,9 @@ class ApplicationTests(unittest.TestCase):
     def plan(self, key="test-plan-key-001", **kwargs):
         return self.app.action("/api/plan", {"scope":"demo","online":False,"request_key":key,**kwargs})
 
-    def test_26_bins_and_no_fabricated_live_measurements(self):
+    def test_25_bins_and_no_fabricated_live_measurements(self):
         d=self.app.dashboard()
-        self.assertEqual(len(d["bins"]),26)
+        self.assertEqual(len(d["bins"]),25)
         live=[b for b in d["bins"] if b["source"]=="live"]
         self.assertTrue(all(b["fill_percent"] is None and not b["selected"] for b in live))
         self.assertEqual(self.app.live.db.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0],0)
@@ -219,7 +219,7 @@ class ApplicationTests(unittest.TestCase):
             with request("/api/dashboard") as r:
                 live=[b for b in json.load(r)["bins"] if b["source"]=="live"]
                 self.assertEqual(live[0]["fill_percent"],0)
-                self.assertIsNone(live[1]["fill_percent"])
+                self.assertEqual(len(live),1)
             with self.assertRaises(HTTPError) as e:request("/../config.json")
             self.assertEqual(e.exception.code,404)
         finally:
