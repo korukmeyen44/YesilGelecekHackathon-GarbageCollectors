@@ -1,7 +1,7 @@
 # Garbage Collectors operasyon merkezi
 
 KTÜ Kanuni Kampüsü çevresinde tek araçla toplama kararı veren yerel hackathon MVP'si.
-24 simüle kutu, 14 günlük üretilmiş geçmiş ve 2 fiziksel sensör yuvası içerir.
+24 simüle kutu, 14 günlük üretilmiş geçmiş ve 1 fiziksel sensör yuvası içerir.
 Gerçek cihaz kayıtları ve simülasyon farklı SQLite dosyalarında tutulur.
 
 ## Başlatma
@@ -151,7 +151,7 @@ iddiası için uzun süreli saha verisi gerekir.
 
 ## Sunum akışı
 
-1. Genel bakışta 24 simülasyon ve 2 gerçek sensör yuvasını gösterin.
+1. Genel bakışta 24 simülasyon ve 1 gerçek sensör yuvasını gösterin.
 2. S03'ü açın: orta doluluğa rağmen hızlı dolum nedeniyle aday olduğunu açıklayın.
 3. Rota planlamada demo rotası oluşturun; haritada sıralı durakları gösterin.
 4. Sabit referans ve aynı duraklarda sıralama etkisini ayrı anlatın.

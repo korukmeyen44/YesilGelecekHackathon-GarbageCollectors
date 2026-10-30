@@ -15,7 +15,7 @@ python -m app.server
 ```
 
 Tarayıcı: **http://127.0.0.1:8080**. Python 3.10+ yeterlidir; ek Python veya npm
-paketi gerekmez. Panel 24 simülasyon kutusu ve veri bekleyen 2 canlı kutuyla açılır.
+paketi gerekmez. Panel 24 simülasyon kutusu ve veri bekleyen 1 canlı kutuyla açılır.
 Donanımdan veri geldiğinde canlı kutular güncellenir.
 
 [Kurulum, donanım bağlantısı ve demo akışı](app/README.md)

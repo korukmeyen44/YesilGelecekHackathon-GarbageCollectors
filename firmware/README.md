@@ -2,6 +2,14 @@
 
 Bu klasör iki HC-SR04 bağlı Arduino Uno düğümünü, NRF24 üzerinden veri alan ESP32 WROOM-32 yer istasyonunu ve bilgisayarda çalışan örnek alıcıyı içerir. Amaç, ölçüm hatalarını saklamadan mesafe toplamak ve kalibrasyona göre yaklaşık doluluk üretmektir. Gerçek hacim, atık türü ve kapak durumu doğrudan ölçülmez.
 
+**Güncel teslim:** Tek gerçek kutu (node 1), S24 FE Wi-Fi ağı ve
+`http://10.206.7.136:8080/api/telemetry` için
+[yükleme ve gerçek bağlantı doğrulama kılavuzunu](UPLOAD_AND_VERIFY.md) izleyin.
+Yerel Wi-Fi şifresi ve ortak API anahtarı `configure_gateway.py` ile hazırlanır;
+gateway yükleme betiği eksik/uyuşmayan ayarlarla ESP32'ye yüklemeyi durdurur.
+ArduinoJson 6.21.5 ile backend kabul yanıtı ölçüm kimliğine bağlanır; yalnız
+200/201 durumu yeterli değildir. Backend ve gateway birlikte güncellenmelidir.
+
 ## Klasörler
 
 | Yol | İçerik |
@@ -127,7 +135,11 @@ python firmware/tools/collector.py --host 0.0.0.0 --config firmware/config/calib
 
 Aynı token'ı gateway yerel ayarına yazın ve ESP32'yi yeniden derleyip yükleyin. Windows güvenlik duvarı ve erişim noktasının istemci yalıtımı bağlantıyı etkileyebilir. Wi-Fi HTTP ile USB köprüsü aynı anda gönderirse alıcı aynı ölçümü tek kayıt olarak tutar.
 
-Bu örnek yerel hackathon ağı içindir. HTTP şifreli değildir; Wi-Fi ve RF kimlik doğrulaması üretim sistemi seviyesinde değildir. İnternete açık kurulum, TLS, cihaz kimliği doğrulaması ve kalıcı gateway kuyruğu bu MVP'nin kapsamı dışındadır.
+Bu örnek yerel hackathon ağı içindir. HTTP şifreli değildir; RF cihaz kimlik
+doğrulaması/şifrelemesi yoktur. Gateway HTTPS istemcisinde güvenilir CA ve NTP
+zamanı zorunludur; Python backend için HTTPS ters proxy ayrıca gerekir. TLS
+istemcisi derlendi, gerçek sertifikalı sunucuda denenmedi. Kalıcı gateway kuyruğu,
+RF kimlik doğrulaması, secure boot ve imzalı OTA bu teslimde yoktur.
 
 ## Arayüze sunulan sonuç
 
@@ -143,9 +155,11 @@ Arayüz `null` değerini sıfıra çevirmemelidir. `degraded`, 10 çiftin en az 
 
 ## Testleri çalıştırma
 
-Python 3 ve erişilebilir bir `g++` gerekir:
+Python 3 ve erişilebilir bir `g++` gerekir. Önce ESP32 hedefini derleyerek
+sabitlenmiş ArduinoJson başlıklarını indirin:
 
 ```powershell
+./firmware/tools/build.ps1 -Environment esp32_gateway
 python firmware/tools/run_tests.py
 ```
 
