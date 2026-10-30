@@ -3,6 +3,10 @@
 #include <SPI.h>
 #include "boot_journal.h"
 #include "radio_setup.h"
+#if defined(ARDUINO_ARCH_AVR)
+#include <avr/wdt.h>
+#include <avr/io.h>
+#endif
 
 #ifndef GC_NODE_ID
 #error "Build with GC_NODE_ID=1, 2 or 3"
@@ -90,7 +94,15 @@ void reportAttempt(bool ack) {
 } // namespace
 
 void setup() {
+#if defined(ARDUINO_ARCH_AVR)
+    const uint8_t resetCause = MCUSR;
+    MCUSR = 0;
+    wdt_disable();
+#endif
     Serial.begin(115200);
+#if defined(ARDUINO_ARCH_AVR)
+    Serial.print(F("# reset_cause=")); Serial.println(resetCause);
+#endif
     for (uint8_t i = 0; i < 2; ++i) {
         pinMode(kTrig[i], OUTPUT);
         digitalWrite(kTrig[i], LOW);
@@ -106,9 +118,15 @@ void setup() {
     if (!packet.bootId) Serial.println(F("# FATAL EEPROM verify failed; transmission disabled"));
     nextMeasurementMs = millis() + GC_NODE_ID * 150UL + random(0, 150);
     nextRadioCheckMs = millis() + 5000;
+#if defined(ARDUINO_ARCH_AVR)
+    wdt_enable(WDTO_8S);
+#endif
 }
 
 void loop() {
+#if defined(ARDUINO_ARCH_AVR)
+    wdt_reset();
+#endif
     if (!packet.bootId) { delay(10); return; }
     uint32_t now = millis();
     if (gc::due(now, nextRadioCheckMs)) {
