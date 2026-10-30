@@ -1,0 +1,13 @@
+{
+  "source": "https://api.openstreetmap.org/api/0.6/map?bbox=39.765,40.988,39.780,40.997",
+  "license": "ODbL 1.0",
+  "attribution": "OpenStreetMap contributors",
+  "fetched_at": "2026-10-30T21:24:59.175803+00:00",
+  "counts": {
+    "building": 328,
+    "road": 689,
+    "land": 101
+  },
+  "estimated_building_heights": 327,
+  "heights": "OSM height; otherwise levels x3m; missing heights estimated12m. Not photogrammetry."
+}
