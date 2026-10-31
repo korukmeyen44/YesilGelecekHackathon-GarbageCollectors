@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
     p.bootId=42; p.sequence=100; expect(!guard.accept(p), "previous boot rejected");
     p.nodeId=2; expect(guard.accept(p), "nodes have independent identity state");
     p.nodeId=0; expect(!guard.accept(p), "zero node rejected");
-    expect(!gc::expired(29999,0) && gc::expired(30001,0), "freshness boundary");
+    expect(!gc::expired(9999,0) && gc::expired(10001,0), "freshness boundary");
     expect(gc::expired(31000,0xFFFFFC18UL), "expiry across millis wrap");
     expect(gc::retryableHttp(-1) && gc::retryableHttp(408) && gc::retryableHttp(429) && gc::retryableHttp(503), "temporary failures retried");
     expect(!gc::retryableHttp(401) && !gc::retryableHttp(409) && !gc::retryableHttp(302), "permanent errors not retried");

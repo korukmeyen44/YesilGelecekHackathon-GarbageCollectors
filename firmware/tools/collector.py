@@ -55,7 +55,8 @@ def loads(text):
 def validate_payload(p):
     if not isinstance(p, dict):
         raise ValidationError("JSON object required")
-    integer(p.get("version"), "version (v2 firmware required)", 2, 2)
+    version = integer(p.get("version"), "version (v2/v3 firmware required)", 2, 3)
+    expected_pairs, min_pairs = (5, 3) if version == 3 else (10, 6)
     if p.get("source") not in ("rf", "simulator"):
         raise ValidationError("source must be rf or simulator")
     integer(p.get("node_id"), "node_id", 1, 3)
@@ -69,13 +70,13 @@ def validate_payload(p):
         if field in p:
             integer(p[field], field)
     if "sensors" in p:
-        raise ValidationError("v2 accepts one combined measurement, not separate sensor distances")
+        raise ValidationError("One combined measurement is required, not separate sensor distances")
     m = p.get("measurement")
     if not isinstance(m, dict):
         raise ValidationError("One combined measurement object required")
-    attempted = integer(m.get("attempted_pairs"), "attempted_pairs", 10, 10)
+    attempted = integer(m.get("attempted_pairs"), "attempted_pairs", expected_pairs, expected_pairs)
     count = integer(m.get("valid_pairs"), "valid_pairs", 0, attempted)
-    integer(m.get("window_duration_ms"), "window_duration_ms", 1, 60000)
+    integer(m.get("window_duration_ms"), "window_duration_ms", 1, 10000 if version == 3 else 60000)
     counts, errors = m.get("valid_samples"), m.get("error_masks")
     if not isinstance(counts, list) or len(counts) != 2 or not isinstance(errors, list) or len(errors) != 2:
         raise ValidationError("Two diagnostic sample counts/error masks required")
@@ -95,15 +96,15 @@ def validate_payload(p):
     status = m.get("status")
     if status in ("ok", "degraded"):
         integer(m.get("distance_mm"), "distance_mm", 20, 4000)
-        if count < 6 or spread > 80 or ((status == "ok") != (count == attempted)):
-            raise ValidationError("Accepted mean requires >=6 stable pairs; ok requires all 10")
+        if count < min_pairs or (version == 2 and spread > 80) or ((status == "ok") != (count == attempted)):
+            raise ValidationError(f"Accepted v{version} mean requires >={min_pairs} complete pairs; ok requires all {attempted}")
     elif status in ("too_few", "unstable"):
         if m.get("distance_mm") is not None:
             raise ValidationError("Invalid measurement requires null distance")
-        if status == "too_few" and count >= 6:
-            raise ValidationError("too_few requires <6 valid pairs")
-        if status == "unstable" and (count < 6 or spread <= 80):
-            raise ValidationError("unstable requires >=6 pairs and spread >80 mm")
+        if status == "too_few" and count >= min_pairs:
+            raise ValidationError(f"too_few requires <{min_pairs} valid pairs")
+        if status == "unstable" and (version != 2 or count < 6 or spread <= 80):
+            raise ValidationError("unstable is a legacy v2 status requiring >=6 pairs and spread >80 mm")
     else:
         raise ValidationError("Unknown measurement status")
     return p
@@ -132,7 +133,7 @@ def load_calibration(path):
             raise ValidationError("calibrated boolean required")
         reference = node.get("measurement")
         if not isinstance(reference, dict):
-            raise ValidationError("v2 requires one measurement calibration per bin; recalibrate the combined mean")
+            raise ValidationError("One measurement calibration per bin is required; calibrate the combined mean")
         full = integer(reference.get("full_mm"), "full_mm", 20, 3999)
         integer(reference.get("empty_mm"), "empty_mm", full + 1, 4000)
         reference["geometry_margin_mm"] = integer(reference.get("geometry_margin_mm", 50),
@@ -192,6 +193,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS latest (
                 node_id INTEGER PRIMARY KEY, state_json TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS telemetry_node_observed ON telemetry(node_id, observed_at);
         """)
 
     def close(self):

@@ -18,15 +18,15 @@ constexpr uint8_t kRadioChannel = GC_RF_CHANNEL;
 constexpr uint8_t kMaxNodeId = 3;
 constexpr uint16_t kMinDistanceMm = 20;
 constexpr uint16_t kMaxDistanceMm = GC_MAX_DISTANCE_MM;
-constexpr uint16_t kMaxSpreadMm = 80;
-constexpr uint8_t kMeasurementPairs = 10;
-constexpr uint8_t kMinValidPairs = 6;
-// Twenty alternating readings, each preceded by a random delay: ~10 s/group.
-constexpr uint16_t kPingGapMinMs = 425;
-constexpr uint16_t kPingGapMaxMs = 575;
-constexpr uint16_t kMaxWindowMs = 60000;
+constexpr uint8_t kMeasurementPairs = 5;
+constexpr uint8_t kMinValidPairs = 3;
+// Alternate sensors; 10 reads x 450 ms quiet time = ~4.5 s per report.
+// Each individual sensor is triggered about once every 0.9 seconds.
+constexpr uint16_t kPingGapMs = 450;
+constexpr uint16_t kMaxWindowMs = 10000;
 constexpr uint32_t kStaleMs = 35000;
-constexpr uint32_t kQueueTtlMs = 30000;
+constexpr uint32_t kQueueTtlMs = 10000;
+static_assert(kPingGapMs > 60, "HC-SR04 requires an acoustic quiet interval");
 static_assert(GC_RF_CHANNEL >= 2 && GC_RF_CHANNEL <= 80,
               "Choose a bench-tested channel within the intended 2.4 GHz band");
 static_assert(GC_RF_RATE_KBPS == 1000 || GC_RF_RATE_KBPS == 250,
@@ -40,9 +40,6 @@ inline bool due(uint32_t now, uint32_t deadline) {
 inline bool newer(uint32_t candidate, uint32_t previous) {
     const uint32_t delta = candidate - previous;
     return delta != 0 && delta < 0x80000000UL;
-}
-inline uint16_t pingGapMs(uint16_t randomOffset) {
-    return kPingGapMinMs + randomOffset % (kPingGapMaxMs - kPingGapMinMs + 1);
 }
 } // namespace gc
 

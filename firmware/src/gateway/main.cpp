@@ -12,6 +12,7 @@
 #include "radio_setup.h"
 #include "telemetry_json.h"
 #include "http_receipt.h"
+#include "lcd_status.h"
 
 namespace {
 constexpr uint8_t kQueueDepth = 24;
@@ -23,15 +24,13 @@ QueueHandle_t httpQueue = nullptr;
 QueueHandle_t lcdQueue = nullptr;
 std::atomic<uint32_t> serialDropped(0), httpDropped(0), rejected(0), httpExpired(0), httpFailed(0);
 std::atomic<uint32_t> lcdDropped(0);
-std::atomic<uint32_t> delivered(0), duplicateRf(0), lastDeliveryMs(0);
+std::atomic<uint32_t> delivered(0), duplicateRf(0), lastDeliveryMs(0), httpSuperseded(0);
 std::atomic<int> httpStatus(0);
 std::atomic<bool> wifiConnected(false);
 uint32_t gatewayBootId = 0;
 std::atomic<bool> radioReady(false), lcdReady(false), httpEnabled(false);
 bool gatewayReady = false;
-Record lastRecords[gc::kMaxNodeId];
-bool seen[gc::kMaxNodeId] = {};
-bool lcdStale[gc::kMaxNodeId] = {};
+gc::DisplayState displayStates[gc::kMaxNodeId];
 uint32_t nextRadioCheckMs = 0;
 uint8_t displayNode = 0;
 gc::ReplayGuard replayGuard;
@@ -74,6 +73,7 @@ void serialWorker(void*) {
                 static_cast<unsigned long>(delivered.load() ? millis()-lastDeliveryMs.load() : 0),
                 static_cast<unsigned long>(ESP.getFreeHeap()), static_cast<unsigned long>(ESP.getMinFreeHeap()));
             if (wifiConnected.load()) Serial.printf("# wifi_ip=%s\n", WiFi.localIP().toString().c_str());
+            Serial.printf("# latest_only superseded=%lu report_pairs=%u\n",static_cast<unsigned long>(httpSuperseded.load()),gc::kMeasurementPairs);
             lastStatsMs = millis();
         }
     }
@@ -87,9 +87,8 @@ void httpWorker(void*) {
     WiFi.begin(GC_WIFI_SSID, GC_WIFI_PASSWORD);
     const bool tls = strncmp(GC_API_URL, "https://", 8) == 0;
     if (tls) configTime(0, 0, "pool.ntp.org", "time.cloudflare.com");
-    uint32_t nextConnectMs = millis() + 10000, blockedUntilMs = 0;
+    uint32_t nextConnectMs = millis() + 10000;
     uint8_t connectFailures = 0;
-    bool blocked = false;
     Record record;
     bool pending = false;
     uint8_t attempts = 0;
@@ -98,7 +97,6 @@ void httpWorker(void*) {
     for (;;) {
         esp_task_wdt_reset();
         const uint32_t now = millis();
-        if (blocked && gc::due(now, blockedUntilMs)) blocked = false;
         const bool connected = WiFi.status() == WL_CONNECTED;
         wifiConnected.store(connected);
         if (connected) {
@@ -110,7 +108,10 @@ void httpWorker(void*) {
             nextConnectMs = now + gc::reconnectDelay(connectFailures, esp_random() % 501);
             if (connectFailures < 5) ++connectFailures;
         }
-        if (!pending && xQueueReceive(httpQueue, &record, 0) == pdTRUE) {
+        Record newest;
+        if (xQueueReceive(httpQueue, &newest, 0) == pdTRUE) {
+            if (pending) ++httpSuperseded;
+            record = newest; // Replace an old retry with the latest RF sample.
             pending = true;
             attempts = 0;
             nextAttemptMs = now;
@@ -119,7 +120,7 @@ void httpWorker(void*) {
             ++httpExpired;
             pending = false;
         }
-        if (pending && connected && gc::due(now, nextAttemptMs) && !blocked) {
+        if (pending && connected && gc::due(now, nextAttemptMs)) {
             WiFiClient client;
             WiFiClientSecure secureClient;
             if (tls) { secureClient.setCACert(GC_TLS_ROOT_CA); secureClient.setHandshakeTimeout(3); }
@@ -154,9 +155,8 @@ void httpWorker(void*) {
             } else if (!gc::retryableHttp(code) || attempts >= gc::kHttpAttempts) {
                 ++httpFailed;
                 pending = false;
-                if (code == 401 || code == 403 || code == 404) {
-                    blocked = true; blockedUntilMs = millis() + 60000;
-                }
+                // Permanent failure ends this sample. The next fresh sample
+                // can recover immediately after backend/configuration repair.
             } else nextAttemptMs = millis() + (500UL << (attempts - 1)) + esp_random() % 251;
         }
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -182,28 +182,15 @@ void refreshLcd() {
     bool found = false;
     for (uint8_t tries = 0; tries < gc::kMaxNodeId; ++tries) {
         displayNode = (displayNode + 1) % gc::kMaxNodeId;
-        if (seen[displayNode]) { found = true; break; }
+        if (displayStates[displayNode].seen()) { found = true; break; }
     }
-    if (!radioReady) lcdLine(0, "RF BAGLANTI HATA");
-    else if (!found) lcdLine(0, "RF bekleniyor");
-    else {
-        const Record& r = lastRecords[displayNode];
-        if (millis() - r.receivedMs > gc::kStaleMs) lcdStale[displayNode] = true;
-        if (lcdStale[displayNode]) snprintf(row, sizeof(row), "K%u VERI ESKI", r.packet.nodeId);
-        else {
-            char distance[8];
-            snprintf(row, sizeof(row), "K%u %smm %u/10", r.packet.nodeId,
-                gc::nullableMm(r.packet.measurement.distanceMm, distance, sizeof(distance)),
-                r.packet.measurement.validPairs);
-        }
-        lcdLine(0, row);
-    }
-    if (!httpEnabled) lcdLine(1, "USB JSON aktif");
-    else {
-        snprintf(row, sizeof(row), "W:%s H:%d Q:%u", wifiConnected.load() ? "OK" : "--",
-                 httpStatus.load(), static_cast<unsigned>(uxQueueMessagesWaiting(httpQueue)));
-        lcdLine(1, row);
-    }
+    const gc::DisplayStatus status = displayStates[displayNode].format(millis(),row,sizeof(row));
+    lcdLine(0, radioReady ? row : "RF kontrol edin");
+    if (!radioReady || (found && status == gc::DisplayStatus::RadioLost)) lcdLine(1,"RF veri bekliyor");
+    else if (found && status == gc::DisplayStatus::SensorFault) lcdLine(1,"Sensoru kontrol");
+    else if (!GC_ENABLE_HTTP) lcdLine(1,"USB aktarim");
+    else lcdLine(1,gc::connectionLabel(httpEnabled.load(),wifiConnected.load(),httpStatus.load(),delivered.load()!=0,
+                                     millis()-lastDeliveryMs.load()));
 }
 
 void lcdWorker(void*) {
@@ -212,17 +199,11 @@ void lcdWorker(void*) {
     for (;;) {
         if (xQueueReceive(lcdQueue, &record, pdMS_TO_TICKS(50)) == pdTRUE) {
             const uint8_t index = record.packet.nodeId - 1;
-            if (!seen[index] || gc::newer(record.packet.bootId, lastRecords[index].packet.bootId) ||
-                (record.packet.bootId == lastRecords[index].packet.bootId &&
-                 gc::newer(record.packet.sequence, lastRecords[index].packet.sequence))) {
-                lastRecords[index] = record;
-                seen[index] = true;
-                lcdStale[index] = false;
-            }
+            displayStates[index].accept(record.packet,record.receivedMs);
         }
         if (gc::due(millis(), nextRefreshMs)) {
             refreshLcd();
-            nextRefreshMs = millis() + 1000;
+            nextRefreshMs = millis() + 500;
         }
     }
 }
@@ -231,7 +212,7 @@ void lcdWorker(void*) {
 void setup() {
     Serial.begin(115200);
     esp_task_wdt_init(12, true);
-    Serial.printf("# reset_reason=%u firmware=gc-v2-hardened-1 active_node=%u\n", esp_reset_reason(), GC_ACTIVE_NODE_ID);
+    Serial.printf("# reset_reason=%u firmware=gc-v3-mean5 active_node=%u\n", esp_reset_reason(), GC_ACTIVE_NODE_ID);
     gatewayBootId = esp_random();
     if (!gatewayBootId) gatewayBootId = 1;
     SPI.begin(18, 19, 23, 5);
@@ -239,23 +220,24 @@ void setup() {
     Serial.printf("# gateway boot=%lu radio=%s channel=%u rate=%u\n",
         static_cast<unsigned long>(gatewayBootId), radioReady ? "ok" : "error",
         gc::kRadioChannel, GC_RF_RATE_KBPS);
+    httpEnabled = GC_ENABLE_HTTP && gc::validGatewayConfig(GC_WIFI_SSID, GC_WIFI_PASSWORD, GC_API_URL, GC_API_TOKEN, GC_TLS_ROOT_CA);
     if (GC_ENABLE_LCD) {
         Wire.begin(21, 22);
         Wire.setTimeOut(20);
         Wire.beginTransmission(GC_LCD_ADDRESS);
         lcdReady = Wire.endTransmission() == 0;
-        if (lcdReady) { lcd.init(); lcd.backlight(); }
+        if (lcdReady) { lcd.init(); lcd.backlight(); lcdLine(0,"GC Istasyon"); lcdLine(1,"Ilk olcum ~5sn"); }
         else Serial.println("# LCD not found; continuing without LCD");
     }
     serialQueue = xQueueCreate(kQueueDepth, sizeof(Record));
-    httpQueue = xQueueCreate(kQueueDepth, sizeof(Record));
+    httpQueue = xQueueCreate(1, sizeof(Record)); // Latest-only live stream, not a history backlog.
     if (!serialQueue || !httpQueue) {
         Serial.println("# FATAL queue allocation failed");
         radioReady = false;
         return;
     }
     if (lcdReady) {
-        lcdQueue = xQueueCreate(kQueueDepth, sizeof(Record));
+        lcdQueue = xQueueCreate(1, sizeof(Record));
         if (!lcdQueue || xTaskCreatePinnedToCore(lcdWorker, "lcd", 3072, nullptr, 1, nullptr, 0) != pdPASS) {
             if (lcdQueue) vQueueDelete(lcdQueue);
             lcdQueue = nullptr;
@@ -263,7 +245,6 @@ void setup() {
             Serial.println("# LCD worker allocation failed; continuing without LCD");
         }
     }
-    httpEnabled = GC_ENABLE_HTTP && gc::validGatewayConfig(GC_WIFI_SSID, GC_WIFI_PASSWORD, GC_API_URL, GC_API_TOKEN, GC_TLS_ROOT_CA);
     if (GC_ENABLE_HTTP && !httpEnabled)
         Serial.println("# HTTP config invalid: configure real SSID/password and backend /api/telemetry URL; HTTPS needs CA; USB remains active");
     if (httpEnabled && strncmp(GC_API_URL, "http://", 7) == 0)

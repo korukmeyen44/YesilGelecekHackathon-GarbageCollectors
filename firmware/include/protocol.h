@@ -3,7 +3,7 @@
 #include "measurement.h"
 
 namespace gc {
-constexpr uint8_t kProtocolVersion = 2;
+constexpr uint8_t kProtocolVersion = 3;
 constexpr size_t kWireSize = 32;
 struct Packet {
     uint8_t nodeId = 0;
@@ -51,13 +51,12 @@ inline bool validSummary(const MeasurementSummary& s) {
         case MeasurementStatus::Ok:
         case MeasurementStatus::Degraded:
             return s.validPairs >= kMinValidPairs && s.distanceMm >= kMinDistanceMm &&
-                   s.distanceMm <= kMaxDistanceMm && s.spreadMm <= kMaxSpreadMm &&
+                   s.distanceMm <= kMaxDistanceMm &&
                    ((s.status == MeasurementStatus::Ok) == (s.validPairs == kMeasurementPairs));
         case MeasurementStatus::TooFew:
             return s.validPairs < kMinValidPairs && s.distanceMm == kInvalidMm;
         case MeasurementStatus::Unstable:
-            return s.validPairs >= kMinValidPairs && s.distanceMm == kInvalidMm &&
-                   s.spreadMm > kMaxSpreadMm;
+            return false; // v3 reports changing valid ranges instead of discarding the mean.
     }
     return false;
 }

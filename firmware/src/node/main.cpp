@@ -35,10 +35,6 @@ uint32_t nextRadioCheckMs = 0;
 uint32_t ackFailures = 0;
 uint32_t windowStartedMs = 0;
 
-uint16_t nextPingGap() {
-    return gc::pingGapMs(static_cast<uint16_t>(random(0, gc::kPingGapMaxMs - gc::kPingGapMinMs + 1)));
-}
-
 uint32_t nextBootId() {
     uint32_t latest = 0;
     int8_t latestSlot = -1;
@@ -138,15 +134,16 @@ void loop() {
         sampleIndex = 0;
         measuring = true;
         windowStartedMs = now;
-        nextPingMs = now + nextPingGap();
+        nextPingMs = now + gc::kPingGapMs;
     }
     if (measuring && gc::due(now, nextPingMs)) {
         const gc::Reading reading = sampleSensor(sampleIndex % 2);
         if (sampleIndex % 2 == 0) firstReading = reading;
         else window.addPair(firstReading, reading);
         ++sampleIndex;
-        // Start a fresh random quiet interval after each completed read, no catch-up burst.
-        nextPingMs = millis() + nextPingGap();
+        // Fixed quiet interval after the echo has finished: no overlapping pings
+        // and no catch-up bursts after a delayed loop or RF retry.
+        nextPingMs = millis() + gc::kPingGapMs;
         if (window.complete()) {
             measuring = false;
             packet.measuredUptimeMs = millis(); // End of the whole sample window.
@@ -172,7 +169,7 @@ void loop() {
         reportAttempt(ack);
         if (ack || sendAttempts >= 3) {
             sending = false;
-            nextMeasurementMs = millis(); // Next group includes its own 20 random waits.
+            nextMeasurementMs = millis(); // Five fresh pairs; no previous-window samples.
         } else {
             nextSendMs = millis() + 50 + random(0, 150);
         }

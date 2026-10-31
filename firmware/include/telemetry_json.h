@@ -21,7 +21,7 @@ inline bool toJson(const Packet& p, const GatewayMetadata& m, char* body, size_t
     char distance[8], spread[8];
     const MeasurementSummary& s = p.measurement;
     const int length = snprintf(body, capacity,
-        "{\"version\":2,\"source\":\"rf\",\"node_id\":%u,\"boot_id\":%lu,\"sequence\":%lu,"
+        "{\"version\":3,\"source\":\"rf\",\"node_id\":%u,\"boot_id\":%lu,\"sequence\":%lu,"
         "\"measured_uptime_ms\":%lu,\"gateway_id\":%u,\"gateway_boot_id\":%lu,"
         "\"received_gateway_ms\":%lu,\"age_ms\":%lu,"
         "\"http_dropped_total\":%lu,\"serial_dropped_total\":%lu,\"rf_rejected_total\":%lu,"

@@ -69,10 +69,8 @@ public:
         MeasurementSummary result = summary_;
         if (result.validPairs) result.spreadMm = (maxPairSum_ - minPairSum_ + 1) / 2;
         if (!complete() || result.validPairs < kMinValidPairs) return result;
-        if (result.spreadMm > kMaxSpreadMm) {
-            result.status = MeasurementStatus::Unstable;
-            return result;
-        }
+        // A moving fill level is not a sensor failure. Spread remains diagnostic;
+        // valid complete pairs still contribute to the requested arithmetic mean.
         const uint8_t denominator = result.validPairs * 2;
         // Arithmetic mean of complete pairs; round once after accumulation.
         result.distanceMm = static_cast<uint16_t>((sumMm_ + denominator / 2) / denominator);

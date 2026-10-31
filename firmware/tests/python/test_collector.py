@@ -159,7 +159,7 @@ class CollectorTests(unittest.TestCase):
 
     def test_old_v1_is_explicitly_rejected(self):
         p = record(); p["version"] = 1
-        with self.assertRaisesRegex(ValidationError, "v2 firmware required"):
+        with self.assertRaisesRegex(ValidationError, "v2/v3 firmware required"):
             validate_payload(p)
         p = record(); p["sensors"] = [{"distance_mm": 220}, {"distance_mm": 220}]
         with self.assertRaises(ValidationError):
@@ -169,7 +169,7 @@ class CollectorTests(unittest.TestCase):
         variants = []
         for key, value in (("node_id", 4), ("node_id", True), ("boot_id", 0),
                            ("age_ms", -1), ("age_ms", 70000), ("source", "unknown"),
-                           ("sequence", 1.5), ("version", 3)):
+                           ("sequence", 1.5), ("version", 4)):
             p = record(); p[key] = value; variants.append(p)
         for key, value in (("distance_mm", 0), ("valid_pairs", 5), ("attempted_pairs", 9),
                            ("status", "garbage"), ("spread_mm", 100), ("window_duration_ms", 0),
@@ -204,7 +204,7 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(payload["boot_id"], 0x12345678)
         latest = self.store.latest(100)[0]
         self.assertEqual(latest["measurement"], payload["measurement"])
-        self.assertEqual(latest["measurement"]["window_duration_ms"], 10000)
+        self.assertEqual(latest["measurement"]["window_duration_ms"], 4500)
         self.assertNotIn("sensors", latest)
 
     def test_complete_simulator_scenario(self):
@@ -214,6 +214,29 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(outcomes[4]["measurement_quality"], "degraded")
         self.assertIsNone(outcomes[5]["fill_percent"])
         self.assertIsNone(outcomes[6]["fill_percent"])
+
+    def test_v3_five_pair_mean_and_changing_distance_are_accepted(self):
+        p = record(); p["version"] = 3
+        p["measurement"].update(attempted_pairs=5,valid_pairs=5,valid_samples=[5,5],window_duration_ms=4500,spread_mm=200)
+        validate_payload(p)
+        result = self.store.ingest(p,100)["result"]
+        self.assertEqual(result["fill_percent"],50)
+        self.assertEqual(result["measurement_quality"],"ok")
+        p["sequence"] += 1
+        p["measurement"].update(valid_pairs=3,valid_samples=[3,5],error_masks=[1,0],status="degraded")
+        validate_payload(p)
+        self.assertEqual(self.store.ingest(p,105)["result"]["measurement_quality"],"degraded")
+        p["sequence"] += 1
+        p["measurement"].update(valid_pairs=0,valid_samples=[0,0],error_masks=[1,1],status="too_few",distance_mm=None,spread_mm=None)
+        self.assertIsNone(self.store.ingest(p,110)["result"]["fill_percent"])
+
+    def test_v3_cannot_claim_a_complete_or_old_profile_window(self):
+        for changes in ({"valid_pairs":2,"valid_samples":[2,5],"status":"degraded","error_masks":[1,0]},
+                        {"attempted_pairs":10}, {"window_duration_ms":10001}, {"status":"unstable","distance_mm":None}):
+            p=record();p["version"]=3
+            p["measurement"].update(attempted_pairs=5,valid_pairs=5,valid_samples=[5,5],window_duration_ms=4500)
+            p["measurement"].update(changes)
+            with self.subTest(changes=changes),self.assertRaises(ValidationError):validate_payload(p)
 
 
 class HttpTests(unittest.TestCase):
