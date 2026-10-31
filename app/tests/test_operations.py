@@ -230,6 +230,12 @@ class ApplicationTests(unittest.TestCase):
                 self.assertEqual(response.headers.get_content_type(),"application/javascript")
                 self.assertEqual(response.headers["Cache-Control"],"no-cache")
                 self.assertEqual(response.headers["Service-Worker-Allowed"],"/")
+            # A long route holds the operations lock, but hardware has its own store.
+            p = next(scenario(101)); p["source"]="rf"
+            with self.app.lock:
+                with request("/api/telemetry",p) as response:self.assertEqual(response.status,201)
+                with request("/api/latest") as response:self.assertEqual(len(json.load(response)["nodes"]),1)
+                with request("/health") as response:self.assertEqual(response.status,200)
             p=next(scenario(100))
             with self.assertRaises(HTTPError) as e:request("/api/telemetry",p)
             self.assertEqual(e.exception.code,400)

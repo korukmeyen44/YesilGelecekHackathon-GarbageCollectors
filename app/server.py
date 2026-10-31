@@ -286,17 +286,18 @@ def make_server(app, host="127.0.0.1", port=8080, token=""):
                 if not self.authorized():
                     return
                 try:
-                    with app.lock:
-                        if path == "/health":
-                            self.reply(200, {"status": "ok", "scope": "local_hackathon_mvp"})
-                        elif path == "/api/latest":
-                            self.reply(200, {"nodes": app.live.latest()})
-                        elif path == "/api/dashboard":
-                            self.reply(200, app.dashboard())
-                        elif path.startswith("/api/bins/"):
-                            self.reply(200, app.detail(path.rsplit("/",1)[-1]))
-                        else:
-                            self.reply(404, {"error": "Bulunamadı."})
+                    if path == "/health":
+                        self.reply(200, {"status": "ok", "scope": "local_hackathon_mvp"})
+                    elif path == "/api/latest":
+                        self.reply(200, {"nodes": app.live.latest()})
+                    else:
+                        with app.lock:
+                            if path == "/api/dashboard":
+                                self.reply(200, app.dashboard())
+                            elif path.startswith("/api/bins/"):
+                                self.reply(200, app.detail(path.rsplit("/",1)[-1]))
+                            else:
+                                self.reply(404, {"error": "Bulunamadı."})
                 except KeyError as exc:
                     self.reply(404, {"error": str(exc)})
                 except sqlite3.Error:
@@ -336,15 +337,17 @@ def make_server(app, host="127.0.0.1", port=8080, token=""):
                     raise ValueError("Eksik istek gövdesi.")
                 body = loads(raw)
                 path = urlsplit(self.path).path
-                with app.lock:
-                    if path == "/api/telemetry":
-                        if not isinstance(body, dict) or body.get("source") != "rf":
-                            raise ValueError("Canlı telemetri yalnız source=rf kabul eder. Sentetik veri ayrı demo deposundadır.")
-                        if body.get("node_id") not in [b["node_id"] for b in app.config["live_bins"]]:
-                            raise ValueError("Bu düğüm canlı kutu envanterinde kayıtlı değil.")
-                        outcome = app.live.ingest(body)
-                        self.reply(201 if outcome["inserted"] else 200, delivery_receipt(body, outcome))
-                    else:
+                # Hardware storage owns its own lock/database. Road requests may
+                # hold app.lock for seconds; they must never block RF ingestion.
+                if path == "/api/telemetry":
+                    if not isinstance(body, dict) or body.get("source") != "rf":
+                        raise ValueError("Canlı telemetri yalnız source=rf kabul eder. Sentetik veri ayrı demo deposundadır.")
+                    if body.get("node_id") not in [b["node_id"] for b in app.config["live_bins"]]:
+                        raise ValueError("Bu düğüm canlı kutu envanterinde kayıtlı değil.")
+                    outcome = app.live.ingest(body)
+                    self.reply(201 if outcome["inserted"] else 200, delivery_receipt(body, outcome))
+                else:
+                    with app.lock:
                         self.reply(200, app.action(path, body))
             except IdentityConflict as exc:
                 self.reply(409, {"error": str(exc)})
