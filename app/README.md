@@ -297,7 +297,7 @@ kendi klasöründe ayrıca tarif edilmiştir.
 | GET | `/api/dashboard` | Kutu durumları, uyarılar, ayarlar, son plan |
 | GET | `/api/bins/S03` | Ayrıntı, 48 saatlik geçmiş, toplama olayları |
 | GET | `/api/latest` | Firmware alıcısıyla uyumlu fiziksel son durum |
-| POST | `/api/telemetry` | Yalnız `source=rf` fiziksel v2 paket |
+| POST | `/api/telemetry` | Yalnız `source=rf` fiziksel v3 paket (eski v2 JSON da desteklenir) |
 | POST | `/api/override` | `{bin_id, mode: auto/include/exclude}` |
 | POST | `/api/settings` | Değiştirilecek ayarlar |
 | POST | `/api/plan` | `{scope: demo/live, online, request_key}` |
