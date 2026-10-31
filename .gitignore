@@ -3,3 +3,8 @@ __pycache__/
 app/.data/
 app/.qa/
 .pio-packages/
+.presentation-build/
+sunum/
+Ysil_Gelecek_Hackathonu_Bilgilendirme.docx
+app/reports/screenshots/*-checks.json
+
