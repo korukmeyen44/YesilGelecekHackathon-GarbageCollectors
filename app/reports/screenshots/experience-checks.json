@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-31",
+  "environment": "Isolated local server and copied operations database; physical telemetry was not modified",
+  "automated": {
+    "python_application_tests": 36,
+    "javascript_suites": ["test_map_scene.cjs", "test_route_math.cjs", "test_future_pwa.cjs"],
+    "result": "passed"
+  },
+  "browser_checks": [
+    "Light/dark toggle works and preference survives reload",
+    "Time lens at +12 hours shows 33 fitted projections, 37 fixed coordinates, and daylight at 10:02 Istanbul time",
+    "No horizontal overflow observed at 320, 390, 768 and 1440 CSS pixels",
+    "Mobile quick start creates 14 road stops and opens the fullscreen driver cockpit",
+    "Driver cockpit dimensions match the 390 by 844 viewport; exit restores the map",
+    "GPS denial returns to preview with an explicit message and no simulated live position",
+    "Empty live plan does not erase the 14-stop demo plan; returning to demo restores 14 map order badges",
+    "Zoom, rotation, 2D/3D and buildings toggle preserve all 37 geographic marker coordinates",
+    "PWA update prompt activates the new app shell without an unsolicited reload",
+    "With the isolated backend stopped, reloading opens the cached shell and dated dashboard with an offline banner",
+    "Saved road plan opens in the driver cockpit while the backend is unavailable",
+    "Restoring the backend clears the offline banner automatically"
+  ],
+  "limits": [
+    "Physical phone installation and actual on-road GPS have not been validated",
+    "Phone install and GPS require a trusted HTTPS origin; localhost testing does not secure a LAN HTTP address",
+    "Third-party satellite and road tiles are not bulk-cached for offline use",
+    "Firmware and RF range were outside this UI/PWA change"
+  ]
+}
