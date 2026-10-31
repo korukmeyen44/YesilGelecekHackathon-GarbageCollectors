@@ -9,6 +9,7 @@ import mimetypes
 import os
 from pathlib import Path
 import sqlite3
+import ssl
 import sys
 import threading
 import time
@@ -110,16 +111,23 @@ class Application:
 
     def dashboard(self):
         bins = self.bins()
-        plan = self.ops.db.execute("SELECT data,completed_at FROM plans ORDER BY created_at DESC,rowid DESC LIMIT 1").fetchone()
-        latest = json.loads(plan[0]) if plan else None
-        if latest:
-            latest["completed_at"] = plan[1]
-            scoped = [b for b in bins if b["source"] == ("simulated" if latest["scope"] == "demo" else "live")]
-            latest["stale"] = latest["input_digest"] != self.digest(scoped, self.ops.settings())
+        plans = {}
+        recent = []
+        for scope in ("demo", "live"):
+            row = self.ops.db.execute("SELECT data,completed_at,created_at,rowid FROM plans WHERE scope=? ORDER BY created_at DESC,rowid DESC LIMIT 1", (scope,)).fetchone()
+            if row is None:
+                continue
+            plan = json.loads(row[0])
+            plan["completed_at"] = row[1]
+            scoped = [b for b in bins if b["source"] == ("simulated" if plan["scope"] == "demo" else "live")]
+            plan["stale"] = plan["input_digest"] != self.digest(scoped, self.ops.settings())
+            plans[plan["scope"]] = plan
+            recent.append((row[2], row[3], plan))
+        latest = max(recent, key=lambda item: item[:2])[2] if recent else None
         completed = self.ops.db.execute("SELECT COUNT(*) FROM plans WHERE completed_at IS NOT NULL").fetchone()[0]
         return {"bins": bins, "alerts": self.alerts(bins), "settings": self.ops.settings(), "depot": DEPOT,
                 "region": self.config["region"], "location_notice": self.config["location_notice"],
-                "demo_now": self.ops.get("demo_now"), "real_now": time.time(), "latest_plan": latest,
+                "demo_now": self.ops.get("demo_now"), "real_now": time.time(), "latest_plan": latest, "latest_plans": plans,
                 "completed_plans": completed,
                 "calibration_id": self.live.calibration["calibration_id"],
                 "emission_notice": "2,68 kg CO₂/L başlangıç değeri düzenlenebilir demo varsayımıdır; yerel filo ölçümü değildir. Yalnız yakıtın yanmasından kaynaklı CO₂ tahmini; yaşam döngüsü/CO₂e hesabı içermez."}
@@ -300,12 +308,15 @@ def make_server(app, host="127.0.0.1", port=8080, token=""):
                 self.reply(404, {"error": "Dosya bulunamadı."})
                 return
             raw = target.read_bytes()
-            mime = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+            mime = {".webmanifest": "application/manifest+json", ".js": "application/javascript"}.get(target.suffix) or mimetypes.guess_type(str(target))[0] or "application/octet-stream"
             self.send_response(200)
             self.send_header("Content-Type", mime + ("; charset=utf-8" if mime.startswith("text/") or mime == "application/javascript" else ""))
             self.send_header("Content-Length", str(len(raw)))
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+            self.send_header("Cache-Control", "no-cache")
+            if path == "/sw.js":
+                self.send_header("Service-Worker-Allowed", "/")
             self.end_headers()
             self.wfile.write(raw)
 
@@ -358,10 +369,19 @@ def main():
     parser.add_argument("--config", type=Path, default=local if local.exists() else ROOT.parent / "firmware/config/calibration.example.json")
     parser.add_argument("--hardware-db", type=Path, help="Mevcut collector veritabanını kullan; collector HTTP sunucusunu aynı portta çalıştırma.")
     parser.add_argument("--offline", action="store_true", help="Yol servisine ağ isteği yapma.")
+    parser.add_argument("--tls-cert", type=Path, help="İsteğe bağlı HTTPS sertifika zinciri (PEM).")
+    parser.add_argument("--tls-key", type=Path, help="HTTPS özel anahtarı (PEM); sertifikayla birlikte gerekir.")
     args = parser.parse_args()
+    if bool(args.tls_cert) != bool(args.tls_key):
+        parser.error("--tls-cert ve --tls-key birlikte kullanılmalı.")
     app = Application(args.data_dir, args.config, args.hardware_db, not args.offline)
     server = make_server(app, args.host, args.port, os.environ.get("GC_API_TOKEN", ""))
-    print(f"Garbage Collectors: http://{args.host}:{server.server_port}", flush=True)
+    if args.tls_cert:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(args.tls_cert, args.tls_key)
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+    print(f"Garbage Collectors: {'https' if args.tls_cert else 'http'}://{args.host}:{server.server_port}", flush=True)
     print(f"Kalibrasyon: {app.live.calibration['calibration_id']} | Simülasyon deposu ayrıdır.", flush=True)
     try:
         server.serve_forever()

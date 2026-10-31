@@ -104,6 +104,19 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(first["id"],self.plan()["id"])
         self.assertEqual(self.app.ops.db.execute("SELECT COUNT(*) FROM plans").fetchone()[0],1)
 
+    def test_empty_live_plan_preserves_demo_plan_and_scope_staleness(self):
+        demo = self.plan()
+        live = self.plan(key="live-plan-key-001", scope="live")
+        self.assertEqual(live["stops"], [])
+        dashboard = self.app.dashboard()
+        self.assertEqual(dashboard["latest_plan"]["id"], live["id"])
+        self.assertEqual(dashboard["latest_plans"]["demo"]["id"], demo["id"])
+        self.assertFalse(dashboard["latest_plans"]["demo"]["stale"])
+        self.app.action("/api/demo/advance", {"hours":1})
+        dashboard = self.app.dashboard()
+        self.assertTrue(dashboard["latest_plans"]["demo"]["stale"])
+        self.assertFalse(dashboard["latest_plans"]["live"]["stale"])
+
     def test_completion_is_idempotent_and_does_not_touch_live_telemetry(self):
         p=self.plan()
         self.app.action("/api/plan/complete",{"plan_id":p["id"]})
@@ -210,6 +223,13 @@ class ApplicationTests(unittest.TestCase):
             with self.assertRaises(HTTPError) as e:request("/api/dashboard",auth=False)
             self.assertEqual(e.exception.code,401)
             with request("/") as response:self.assertIn("Garbage Collectors",response.read().decode())
+            with request("/manifest.webmanifest",auth=False) as response:
+                self.assertEqual(response.headers.get_content_type(),"application/manifest+json")
+                self.assertEqual(json.load(response)["display"],"standalone")
+            with request("/sw.js",auth=False) as response:
+                self.assertEqual(response.headers.get_content_type(),"application/javascript")
+                self.assertEqual(response.headers["Cache-Control"],"no-cache")
+                self.assertEqual(response.headers["Service-Worker-Allowed"],"/")
             p=next(scenario(100))
             with self.assertRaises(HTTPError) as e:request("/api/telemetry",p)
             self.assertEqual(e.exception.code,400)

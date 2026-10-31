@@ -26,6 +26,7 @@ class Operations:
             CREATE TABLE IF NOT EXISTS overrides (bin_id TEXT PRIMARY KEY, mode TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, request_key TEXT UNIQUE NOT NULL,
                 created_at REAL NOT NULL, scope TEXT NOT NULL, data TEXT NOT NULL, completed_at REAL);
+            CREATE INDEX IF NOT EXISTS plans_scope_created ON plans(scope, created_at DESC);
         """)
         if self.get("demo_now") is None:
             self.seed(time.time() if now is None else now)
