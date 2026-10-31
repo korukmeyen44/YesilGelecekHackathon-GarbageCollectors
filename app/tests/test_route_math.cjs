@@ -1,0 +1,15 @@
+const assert=require('node:assert/strict');
+const math=require('../web/route-math.js');
+const a=[39.77,40.99],b=[39.771,40.99],c=[39.771,40.991],path=math.route([a,b,c]);
+assert.ok(path.length>190&&path.length<200);
+assert.deepEqual(math.at(path,-1).position,a);assert.deepEqual(math.at(path,1e9).position,c);
+assert.ok(Math.abs(math.at(path,path.cumulative[1]/2).position[0]-39.7705)<1e-8);
+assert.ok(Math.abs(math.bearing(a,b)-90)<.01);
+assert.ok(Math.abs(math.nearest(path,[39.7705,40.9901]).distance-11.12)<.1);
+const loop=math.route([a,b,c,b,a]);
+assert.ok(math.nearest(loop,b,path.length).meters>=path.length,'sequential visits must not snap to first pass');
+assert.equal(math.route([a,a]).length,0);assert.equal(math.at(math.route([]),0),null);
+assert.ok(Number.isFinite(math.nearest(math.route([a,a,b]),a).meters));
+assert.equal(math.instruction({type:'turn',modifier:'right'}).text,'Sağa dönün');
+assert.equal(math.instruction({type:'roundabout',exit:3}).text,'Döner kavşakta 3. çıkışı kullanın');
+console.log('PASS: distance, bearing, interpolation, projection, loop visits, zero-length geometry, and instructions');
