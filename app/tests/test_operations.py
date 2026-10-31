@@ -66,9 +66,9 @@ class ApplicationTests(unittest.TestCase):
     def plan(self, key="test-plan-key-001", **kwargs):
         return self.app.action("/api/plan", {"scope":"demo","online":False,"request_key":key,**kwargs})
 
-    def test_25_bins_and_no_fabricated_live_measurements(self):
+    def test_37_bins_and_no_fabricated_live_measurements(self):
         d=self.app.dashboard()
-        self.assertEqual(len(d["bins"]),25)
+        self.assertEqual(len(d["bins"]),37)
         live=[b for b in d["bins"] if b["source"]=="live"]
         self.assertTrue(all(b["fill_percent"] is None and not b["selected"] for b in live))
         self.assertEqual(self.app.live.db.execute("SELECT COUNT(*) FROM telemetry").fetchone()[0],0)

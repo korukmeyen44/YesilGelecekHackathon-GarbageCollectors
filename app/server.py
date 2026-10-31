@@ -126,7 +126,7 @@ class Application:
 
     @staticmethod
     def digest(bins, settings):
-        fields = ("id", "fill_percent", "usable", "measurement_quality", "freshness", "override",
+        fields = ("id", "lat", "lng", "capacity_l", "fill_percent", "usable", "measurement_quality", "freshness", "override",
                   "last_collection_at", "selected", "estimated_load_l", "forecast")
         snapshot = {"settings": settings, "bins": [{k: b.get(k) for k in fields} for b in bins]}
         return hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode()).hexdigest()

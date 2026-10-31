@@ -29,6 +29,9 @@ class Operations:
         """)
         if self.get("demo_now") is None:
             self.seed(time.time() if now is None else now)
+        elif self.get("inventory_version", 1) < 2:
+            # Add demo points without resetting existing fills, history, overrides or plans.
+            self.seed(self.get("demo_now"), additional_only=True)
 
     def get(self, key, default=None):
         row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
@@ -46,7 +49,7 @@ class Operations:
     def demo_bins(self):
         return [json.loads(row[0]) for row in self.db.execute("SELECT data FROM demo_bins ORDER BY id")]
 
-    def seed(self, now):
+    def seed(self, now, additional_only=False):
         # Approximate presentation positions around campus; not asserted municipal assets.
         positions = [
             (40.9915,39.7678),(40.9923,39.7684),(40.9930,39.7692),(40.9936,39.7702),
@@ -55,16 +58,22 @@ class Operations:
             (40.9896,39.7754),(40.9890,39.7742),(40.9890,39.7727),(40.9895,39.7713),
             (40.9900,39.7699),(40.9906,39.7685),(40.9913,39.7700),(40.9918,39.7720),
             (40.9914,39.7737),(40.9908,39.7751),(40.9923,39.7747),(40.9928,39.7727),
+            (40.99465,39.76700),(40.99548,39.76965),(40.99610,39.77305),(40.99555,39.77615),
+            (40.99400,39.77925),(40.99170,39.78050),(40.98955,39.77915),(40.98765,39.77600),
+            (40.98685,39.77190),(40.98815,39.76750),(40.99020,39.76540),(40.99285,39.76585),
         ]
-        fills = [91,34,62,85,22,76,45,93,58,18,81,39,66,27,88,51,12,73,42,96,31,54,68,47]
+        fills = [91,34,62,85,22,76,45,93,58,18,81,39,66,27,88,51,12,73,42,96,31,54,68,47,29,87,16,64,92,43,57,24,78,36,68,19]
         areas = ["Batı bölgesi", "Kuzey aksı", "Doğu bölgesi", "Güney aksı", "Merkez bölgesi", "Merkez bölgesi"]
         with self.db:
-            self.put("demo_now", now)
-            self.put("seed_at", now)
+            if not additional_only:
+                self.put("demo_now", now)
+                self.put("seed_at", now)
             for i, ((lat, lng), fill) in enumerate(zip(positions, fills), 1):
+                if additional_only and self.db.execute("SELECT 1 FROM demo_bins WHERE id=?", (f"S{i:02d}",)).fetchone():
+                    continue
                 rng = random.Random(7300+i)
                 rate = [2.0,1.1,8.0,3.2,0.7,4.5,1.8,2.6][(i-1)%8]
-                b = {"id": f"S{i:02d}", "name": f"Kampüs noktası {i:02d}", "area": areas[(i-1)//4],
+                b = {"id": f"S{i:02d}", "name": f"Kampüs noktası {i:02d}" if i <= 24 else f"Trabzon demo noktası {i:02d}", "area": areas[(i-1)//4] if i <= 24 else ["Kampüs kuzey çevresi", "Konaklar çevresi", "Üniversite güney çevresi", "Kalkınma çevresi"][(i-25)//3],
                      "lat": lat, "lng": lng, "capacity_l": 770, "source": "simulated",
                      "fill_percent": fill, "last_valid_fill": fill, "last_seen": now-120 if i == 22 else now,
                      "rate": rate, "fault": "offline" if i == 22 else "unstable" if i == 23 else "degraded" if i == 24 else "normal"}
@@ -91,6 +100,7 @@ class Operations:
                 # Exact model boundary, independent of whether the 15-minute sample captured the drop.
                 self.db.execute("INSERT INTO events(bin_id,ts,kind,source,detail) VALUES (?,?,?,?,?)",
                                 (b["id"], cycle_start, "collection", "simulated", "Sentetik son dolum dönemi başlangıcı"))
+            self.put("inventory_version", 2)
 
     def history(self, bin_id, since=None):
         rows = self.db.execute("SELECT ts,fill FROM samples WHERE bin_id=? AND ts>=? AND quality IN ('ok','degraded') ORDER BY ts",
