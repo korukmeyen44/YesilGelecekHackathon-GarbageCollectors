@@ -1,50 +1,94 @@
 # Garbage Collectors operasyon merkezi
 
 KTÜ Kanuni Kampüsü çevresinde tek araçla toplama kararı veren yerel hackathon MVP'si.
-24 simüle kutu, 14 günlük üretilmiş geçmiş ve 1 fiziksel sensör yuvası içerir.
+36 simüle kutu, 14 günlük üretilmiş geçmiş ve 1 fiziksel sensör yuvası içerir.
 Gerçek cihaz kayıtları ve simülasyon farklı SQLite dosyalarında tutulur.
 
-## 3D operasyon haritası
+## Uydu, 3D şehir ve şoför kokpiti
 
-Ana harita MapLibre GL JS 5.6.2 ile WebGL üzerinde eğimli 3D görünür. Bina ve yol
-tabanları gerçek OpenStreetMap verisinden kampüs çevresi için alınmıştır. Yerel
-önbellekte 328 bina, 689 yol ve 101 arazi/alan geometrisi bulunur. Veri kaynağı,
-tarih ve lisans `web/data/scene-source.json` / `LICENSE.md` dosyalarındadır.
-328 binanın 327'sinde yükseklik doğrudan ölçülü OSM height alanından gelmez:
-kat sayısı × 3m veya eksikse 12m görsel tahmin kullanılır. Fotogrametri değildir.
-Noktaların/sütunların boyutları doluluğu vurgulayan temsilî göstergelerdir;
-gerçek çöp kutularının fiziksel boyut modeli değildir.
+Harita, yerel olarak paketlenmiş **MapLibre GL JS 5.6.2** kullanır. Aynı harita
+üzerinde uydu görüntüsü, low-poly şehir ve yol haritası arasında geçiş yapılır.
+Kutu renkleri, doluluk yüzdeleri, seçim paneli, filtreler, numaralı duraklar ve
+backend'in hesapladığı rota korunur. Son sefer genel bakışta da görünür.
 
-- **3D / Üstten:** eğimli şehir ve düz operasyon görünümü.
-- **Işık:** gün ışığı ve alacakaranlık bina aydınlatması.
-- **Arazi:** isteğe bağlı AWS/Mapzen Terrarium yükseklik verisi (internet gerekir).
-- **Uçuş:** varsa sefer duraklarını, yoksa kutuları dolaşan kamera; tekrar basarak,
-  haritayı sürükleyerek veya sekmeden ayrılarak durdurulur. Azaltılmış hareket
-  tercihinde otomatik uçuş başlatılmaz.
-- **PNG:** o anki WebGL haritasını işaretler ve kaynak atfıyla PNG olarak indirir.
-- **2D yedek:** WebGL yoksa veya elle seçilirse Leaflet üzerinde noktalar,
-  doluluk renkleri ve yol çizgisi korunur. 3D'ye dönmek için sayfa yenilenir.
-- Tam ekran düğmesi harita ve sefer panelini birlikte büyütür.
+- **Uydu:** Esri World Imagery; internet gerekir. Bina katmanı uydu üzerine de açılabilir.
+  Servis hatasında yerel şehir görünümüne geçilir.
+- **Binalar:** zeminden bağımsız aç/kapat. Kampüste 328, Ortahisar/Meydan, Kalkınma
+  ve Konaklar çevresinde 7.916 ek bina; toplam 8.244 gerçek OSM tabanı. 8.237
+  yükseklik kat × 3 m veya 12 m tahminidir. Fotogrametri değildir.
+- **3D / 2D düğmesi:** aynı düğmeyle kamera eğimi değişir; zemin ve bina seçimi korunur.
+- **Dönüş:** sağ fare tuşuyla sürükleme, Shift + yön tuşları, dokunarak iki parmak
+  döndürme veya haritadaki sağ/sol/kuzey düğmeleri. **Arazi:** isteğe bağlı Mapzen/AWS yükseklikleri.
+- **Bölge seçimi:** Kampüs, Meydan, Kalkınma ve Trabzon geneli için kamera konumları;
+  harita bu sınırların dışına gezinmeyi engellemez.
+- **Doluluk ısısı:** yalnız bilinen güncel dolulukla ağırlıklandırılır. Zamana
+  bağlı yoğunluk analizi veya geleceğin tahmini değildir. Belirsiz ölçüm katılmaz.
+- **Uçuş:** plan duraklarını veya kutuları dolaşır. Sürükleme, sekmenin gizlenmesi
+  ve tekrar basma durdurur. Varsayılan olarak azaltılmış hareket tercihine uyar.
+  Diğer seçenekler → Sunum animasyonları bu sekmede kullanıcı tercihiyle hareketi açar.
+- **Bildirimler:** kapatma düğmesi ve 8 saniyelik zaman çubuğu. Üzerine gelince
+  veya klavye odağı bildirimdeyken sayaç duraklar.
+- **Diğer seçenekler:** ışık, PNG, Leaflet 2D yedek. Yedekte rota, renk ve kutu
+  seçimi çalışır; 3D'ye dönmek için sayfa yenilenir.
+- **Tam ekran:** haritayı büyütür; tarayıcı izin vermezse sayfa içi tam ekran açar.
 
-Kutu seçimi, kaynak/doluluk filtreleri, rota hesaplaması ve canlı veri aynı
-API'yi kullanır. Periyodik veri güncellemeleri kamerayı sıfırlamaz ve mevcut
-işaretçileri yeniden oluşturarak klavye odağını kaybetmez. Rota varsa durak
-sırası işaretlerin içinde gösterilir; yaklaşık yol kesikli çizilir.
+### Şoför modu
 
-Harita zemini OSM raster karolarıyla, erişilebilirse OpenFreeMap vektör zeminiyle
-zenginleştirilir. Yerel şehir geometrisi internet olmadan da kullanılabilir;
-çevre zemin/etiketler ve arazi için ağ erişimi gerekir. Karo toplu indirme yoktur.
-Modeli yenilemek için `python app/tools/fetch_scene.py` çalıştırılabilir.
+Rota planlama → sefer oluştur → **Şoför modunu aç**. Mevcut harita tam ekran
+kokpite dönüşür. Sıradaki durak, rotada kalan mesafe, durak inceleme düğmeleri,
+araç işareti ve kameranın aracı izlemesi bulunur. Yol verisindeki OSRM manevraları
+varsa yaklaşan dönüş gösterilir; yaklaşık rotada dönüş talimatı uydurulmaz.
+Önceden kaydedilmiş planlarda manevra yoksa yeni plan oluşturun.
+
+**Demo sürüşü**, 150 saniyede rotayı görselleştiren simülasyondur; araçtan gelen
+konum veya hız değildir. **GPS başlat**, kullanıcının tarayıcı izniyle gerçek
+cihaz konumunu izler. Konum backend'e veya analitik hizmetine gönderilmez.
+HTTPS veya aynı cihazda localhost gerekir; telefonun HTTP yerel IP bağlantısında
+GPS tarayıcı tarafından engellenebilir. 60 m üzeri belirsizlikte ilerleme
+hesaplanmaz. Rota dışına çıkma uyarısı vardır; otomatik yeniden rota yoktur.
+Durak ileri/geri düğmeleri inceleme içindir, toplama kaydı oluşturmaz. Kamera
+elle sürüklendiğinde takip durur; **Aracı takip et** tekrar açar. GPS, duraklatma,
+çıkış ve sekme gizlenmesinde kapatılır. Sefer değişirse eski kokpit kapanır.
+
+OSRM **otomobil profili** kullanılır: kamyon yüksekliği, ağırlığı, yol erişim
+kısıtları ve canlı trafik bilinmez. Saha kullanımı için kamyona uygun yol servisi
+ve gerçek cihaz testleri gerekir. Bu sürüm hackathon rota takip prototipidir.
+
+### Performans yaklaşımı
+
+Tek WebGL bağlamı; en fazla 2 işçi; 8 paralel görsel isteği; 96 karo önbelleği.
+DPR otomatikte masaüstü 1.5, mobil 1.25 ile sınırlıdır; ekonomik 1, keskin en
+fazla 2. Kamera hareketindeki harita render aralıkları yavaşsa otomatikte DPR 1'e
+harita boşta kaldığında iner; çözünürlük değişimi etkin fare hareketini kesmez. FPS etiketi render olaylarının örneklemidir; GPU süresi veya donanım
+karşılaştırması değildir. Ekran boşta iken sürekli animasyon döngüsü çalışmaz.
+Aynı rota/doluluk geometrisi her 5 saniyede yeniden GPU kaynağına gönderilmez;
+işaretçiler ve odak korunur. Kalıcı `preserveDrawingBuffer` kapalıdır; PNG, tek
+render sırasında kopyalanır. Demo araç/kamera güncellemesi en fazla 10 Hz'dir.
+
+Bina kaynağı `web/data/scene-source.json` ve `web/data/LICENSE.md` içindedir.
+OSM/Esri/AWS atıfları haritada korunur. Dış karolar topluca indirilmez.
+Yerel kampüs verisini yenileme: `python app/tools/fetch_scene.py`.
+Geniş Trabzon bina önbelleği: `python app/tools/fetch_scene.py --trabzon`.
+Kaynak sınırları, indirme tarihi ve tahmini yükseklik sayısı `web/data/trabzon-source.json` içindedir.
+
+### Mevcut demo verilerinin yükseltilmesi
+
+Başlangıçta envanter sürümü 2’ye yükseltilir: S25–S36 adlı 12 yeni simülasyon
+noktası eklenir. Mevcut 24 kutunun konumu, doluluğu, geçmişi, arıza durumu, elle
+seçimi ve planları korunur; aynı yükseltme tekrar kayıt eklemez. Yeni kutular da
+14 günlük geçmişle gelir. Fiziksel sensör kaynağı H1 olarak ayrı kalır. Arayüz
+ve yeniden üretilmiş mock raporları sayıları güncel envanterden alır.
 
 ```powershell
 node app/tests/test_map_scene.cjs
+node app/tests/test_route_math.cjs
+python -m unittest discover -s app/tests -q
 ```
 
-Bu test gerçek sahne denetleyicisinin API/işaretçi/rota/kamera sözleşmelerini ve
-kaynak geometrisini sınar; gerçek WebGL veya ekran görüntüsü testi değildir.
-Bu değişiklikte ekran kontrol araçları `failed to write kernel assets` hatasıyla
-başlatılamadığı için tarayıcı görsel QA ve ekran görüntüsü ile ikinci görsel
-iterasyon tamamlanamadı. Çalışan bir ekran oturumunda bu adım ayrıca yapılmalı.
+Sözleşme testleri kamera/rota/işaretçi korumasını, tekrar veri gönderilmemesini,
+GPS kalite kontrolünü ve temizliğini, sefer değişmesini ve rota projeksiyonunu
+sınar. OSRM manevra ayrıştırması ve önbelleği Python testleriyle doğrulanır.
+Görsel kontrol ve sınırlar `reports/HARITA_DOGRULAMA.md` dosyasındadır.
 
 ## Başlatma
 
@@ -56,7 +100,7 @@ python -m app.server
 
 **http://127.0.0.1:8080** adresini açın. Sunucuyu durdurmak için Ctrl+C kullanın.
 Ek Python/npm bağımlılığı yoktur. Leaflet 1.9.4 dosyaları lisansı ile `web/vendor`
-içindedir. Harita zemini OpenStreetMap'ten, yol verisi OSRM'den gelir. Bunlar için
+içindedir. Uydu zemini Esri, yol zemini OSM ve rota verisi OSRM kaynaklıdır. Bunlar için
 internet gerekir; zemin gelmezse noktalar ve diğer ekranlar kullanılabilir.
 
 Yol servisine hiç istek yapmadan çalıştırmak için:
@@ -215,7 +259,7 @@ iddiası için uzun süreli saha verisi gerekir.
 
 ## Sunum akışı
 
-1. Genel bakışta 24 simülasyon ve 1 gerçek sensör yuvasını gösterin.
+1. Genel bakışta 36 simülasyon ve 1 gerçek sensör yuvasını gösterin.
 2. S03'ü açın: orta doluluğa rağmen hızlı dolum nedeniyle aday olduğunu açıklayın.
 3. Rota planlamada demo rotası oluşturun; haritada sıralı durakları gösterin.
 4. Sabit referans ve aynı duraklarda sıralama etkisini ayrı anlatın.
@@ -267,6 +311,8 @@ Arayüz dosyaları anahtar içermez. Farklı Origin'den yazma istekleri reddedil
 
 ## Açık kaynak bileşenler ve veri hizmetleri
 
+- [MapLibre GL JS 5.6.2](https://maplibre.org/maplibre-gl-js/) · BSD-3-Clause · `web/vendor/MAPLIBRE-LICENSE`
+- [Esri World Imagery](https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer) · canlı karo servisi, kaynak atfı haritada
 - [Leaflet 1.9.4](https://leafletjs.com/) · BSD-2-Clause · lisans `web/vendor/LEAFLET-LICENSE`
 - [OpenStreetMap](https://www.openstreetmap.org/copyright) · haritada atıf korunur
 - [OSM karo kullanım politikası](https://operations.osmfoundation.org/policies/tiles/)
