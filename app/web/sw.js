@@ -1,6 +1,6 @@
 /* Bump the version whenever the app shell changes. API data is never cached here. */
 "use strict";
-const CACHE = 'gc-shell-20261031-2';
+const CACHE = 'gc-shell-20261031-3';
 const CORE = ['/', '/index.html', '/styles.css', '/mission.css', '/experience.css', '/driver.css',
   '/theme-init.js', '/future-model.js', '/pwa.js', '/app.js', '/map-scene.js', '/route-math.js', '/driver-mode.js',
   '/vendor/leaflet.js', '/vendor/leaflet.css', '/vendor/maplibre-gl.js', '/vendor/maplibre-gl.css',
