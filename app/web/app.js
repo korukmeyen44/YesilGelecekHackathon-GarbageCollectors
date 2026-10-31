@@ -74,11 +74,12 @@ function visibleBins() {
 }
 function initMap() {
   state.map = new GCMapScene($("#map"),id=>openDetail(id));
+  state.map.driver = new GCDriverMode(state.map);
 }
 function renderMap() {
   const bins=visibleBins();$("#mapCount").textContent=`${bins.length} kutu`;
-  const plan=state.view==="route" && state.data.latest_plan?.scope===state.scope ? state.data.latest_plan : null;
-  state.map?.render({bins,plan,depot:state.data.depot,selected:state.selected});
+  const plan=state.view==="route" ? (state.data.latest_plan?.scope===state.scope?state.data.latest_plan:null) : state.data.latest_plan;
+  state.map?.render({bins,allBins:state.data.bins,plan,depot:state.data.depot,selected:state.selected});
 }
 function renderQueue() {
   const all = visibleBins().filter(b=>`${b.id} ${b.name} ${b.area}`.toLocaleLowerCase("tr").includes(state.search.toLocaleLowerCase("tr")));
@@ -96,7 +97,7 @@ function renderPreviews() {
 }
 function setView(view) {
   if (!["overview","route","health","impact"].includes(view)) view="overview";
-  state.view=view; const labels={overview:["Genel bakış","Şehrin ritmini yakala.","Kampüsü üç boyutta izle. Öncelikleri gör. Daha akıllı bir sefer planla."],route:["Rota planlama","Her durak için bir neden.","Toplama adaylarını seçin, seferi planlayın ve referansla karşılaştırın."],health:["Sensör sağlığı","Sistemin nabzı","Bağlantı kesintilerini ve ölçüm belirsizliklerini birlikte izleyin."],impact:["Etki analizi","Seferin beklenen etkisi","Mesafe, süre ve yakıt varsayımlarına dayalı şeffaf karşılaştırma."]};
+  state.view=view; const labels={overview:["Genel bakış","Trabzon operasyon merkezi","Dolulukları izleyin, toplama önceliklerini belirleyin ve seferleri yönetin."],route:["Rota planlama","Toplama ve sefer planlama","Toplama adaylarını seçin, seferi planlayın ve referansla karşılaştırın."],health:["Sensör sağlığı","Sensör ve bağlantı sağlığı","Bağlantı kesintilerini ve ölçüm belirsizliklerini birlikte izleyin."],impact:["Etki analizi","Operasyonun tahmini etkisi","Mesafe, süre ve yakıt varsayımlarına dayalı şeffaf karşılaştırma."]};
   $("#breadcrumbView").textContent=labels[view][0]; $("#pageTitle").textContent=labels[view][1]; $("#pageSubtitle").textContent=labels[view][2];
   $$("nav [data-view]").forEach(b=>{b.classList.toggle("active",b.dataset.view===view); if(b.dataset.view===view)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});
   $("#mapWorkspace").hidden=!["overview","route"].includes(view);
@@ -105,7 +106,7 @@ function setView(view) {
   $("#overviewExtras").hidden=view!=="overview"; $("#routeResults").hidden=view!=="route";
   $("#healthPage").hidden=view!=="health"; $("#impactPage").hidden=view!=="impact";
   $(".map-filters").hidden=view==="route"; $("#sidebar").classList.remove("open");
-  $(".map-footnote").innerHTML = icon("info") + (view === "route" ? "Sayılar durak sırası, renkler doluluk. Bina tabanları OSM; eksik yükseklikler tahmini." : "OSM bina tabanları · eksik yükseklikler tahmini · doluluk işaretleri temsilîdir.");
+  $(".map-footnote").innerHTML = icon("info") + (view === "route" ? "Renkli daireler doluluk (%), koyu rozetler durak sırası. Bina tabanları OSM; eksik yükseklikler tahmini." : "Dairelerde doluluk (%) · OSM bina tabanları · eksik yükseklikler tahmini.");
   if(state.data)render(); if(state.map)requestAnimationFrame(()=>state.map.invalidateSize());
   history.replaceState(null,"",`#${view}`);
 }
@@ -113,7 +114,7 @@ function renderPlanner() {
   const bins=state.data.bins.filter(b=>b.source===(state.scope==="demo"?"simulated":"live"));
   const chosen=bins.filter(b=>b.selected), load=chosen.reduce((n,b)=>n+b.estimated_load_l,0), s=state.data.settings;
   const p=state.data.latest_plan?.scope===state.scope?state.data.latest_plan:null;
-  $("#plannerPanel").innerHTML=`<div class="card-heading"><div><h2>Sefer oluştur</h2><p>Tek araç · başlangıç noktasına dönüş</p></div><span class="soft-icon green-soft">${icon("truck")}</span></div><div class="form-field"><label for="planScope">Planlama kaynağı</label><select id="planScope"><option value="demo"${state.scope==="demo"?" selected":""}>Simülasyon · 24 kutu</option><option value="live"${state.scope==="live"?" selected":""}>Canlı sensörler · ${bins[0]?.source==="live"?bins.length:state.data.bins.filter(b=>b.source==="live").length} kutu</option></select></div><div class="plan-summary"><div><span>Toplama adayı</span><strong>${chosen.length} kutu</strong></div><div><span>Yaklaşık yük varsayımı</span><strong>${nf(load)} L</strong></div><div><span>Araç hacim varsayımı</span><strong>${nf(s.truck_capacity_l)} L</strong></div><div><span>Sonraki ziyaret</span><strong>${nf(s.horizon_hours,1)} saat sonra</strong></div><div><span>Sefer üst sınırı</span><strong>${nf(s.shift_minutes)} dk</strong></div></div><label class="checkbox-row"><input id="onlineRoads" type="checkbox"${state.online?" checked":""}>Yol ağı üzerinden hesapla</label><button class="button button-primary full-width" id="generatePlan"${state.planning?" disabled":""}>${state.planning?'<span class="spinner"></span> Rota hesaplanıyor…':icon("route")+"Önerilen rotayı oluştur"}</button>${p?`<div class="plan-status">${p.completed_at?"✓ Toplama kaydı tamamlandı":p.stale?"⚠ Girdiler değişti; planı yeniden oluşturun.":"Son plan: "+date(p.created_at)}</div>`:""}<div class="planner-bottom">${icon("info")} Canlı kutular ve demo kutuları farklı zamanlara sahiptir; ayrı planlanır. Kutu panelinden elle ekleme/çıkarma yapabilirsiniz.</div>`;
+  $("#plannerPanel").innerHTML=`<div class="card-heading"><div><h2>Sefer oluştur</h2><p>Tek araç · başlangıç noktasına dönüş</p></div><span class="soft-icon green-soft">${icon("truck")}</span></div><div class="form-field"><label for="planScope">Planlama kaynağı</label><select id="planScope"><option value="demo"${state.scope==="demo"?" selected":""}>Simülasyon · ${state.data.bins.filter(b=>b.source==="simulated").length} kutu</option><option value="live"${state.scope==="live"?" selected":""}>Canlı sensörler · ${bins[0]?.source==="live"?bins.length:state.data.bins.filter(b=>b.source==="live").length} kutu</option></select></div><div class="plan-summary"><div><span>Toplama adayı</span><strong>${chosen.length} kutu</strong></div><div><span>Yaklaşık yük varsayımı</span><strong>${nf(load)} L</strong></div><div><span>Araç hacim varsayımı</span><strong>${nf(s.truck_capacity_l)} L</strong></div><div><span>Sonraki ziyaret</span><strong>${nf(s.horizon_hours,1)} saat sonra</strong></div><div><span>Sefer üst sınırı</span><strong>${nf(s.shift_minutes)} dk</strong></div></div><label class="checkbox-row"><input id="onlineRoads" type="checkbox"${state.online?" checked":""}>Yol ağı üzerinden hesapla</label><button class="button button-primary full-width" id="generatePlan"${state.planning?" disabled":""}>${state.planning?'<span class="spinner"></span> Rota hesaplanıyor…':icon("route")+"Önerilen rotayı oluştur"}</button>${p?`<div class="plan-status">${p.completed_at?"✓ Toplama kaydı tamamlandı":p.stale?"⚠ Girdiler değişti; planı yeniden oluşturun.":"Son plan: "+date(p.created_at)}</div>`:""}<div class="planner-bottom">${icon("info")} Canlı kutular ve demo kutuları farklı zamanlara sahiptir; ayrı planlanır. Kutu panelinden elle ekleme/çıkarma yapabilirsiniz.</div>`;
 }
 async function generatePlan() {
   if(state.planning)return; state.planning=true;renderPlanner();

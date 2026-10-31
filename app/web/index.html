@@ -9,14 +9,18 @@
   <link rel="stylesheet" href="/vendor/leaflet.css">
   <link rel="stylesheet" href="/vendor/maplibre-gl.css">
   <link rel="stylesheet" href="/styles.css">
-  <link rel="stylesheet" href="/scene.css">
+  <link rel="stylesheet" href="/driver.css">
+  <link rel="stylesheet" href="/mission.css">
   <script defer src="/vendor/leaflet.js"></script>
   <script defer src="/vendor/maplibre-gl.js"></script>
   <script defer src="/map-scene.js"></script>
+  <script defer src="/route-math.js"></script>
+  <script defer src="/driver-mode.js"></script>
   <script defer src="/app.js"></script>
 </head>
 <body>
 <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+  <symbol id="i-buildings" viewBox="0 0 24 24"><path d="M3 21V7l7-4v18M10 10l11-3v14M1 21h22M6 9v2m0 3v2m8-3v2m4-3v2m-4 3v2m4-3v2"/></symbol>
   <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
   <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 6h7a4 4 0 0 1 0 8H8a3 3 0 0 0 0 6h7"/></symbol>
   <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h5l3-8 4 16 3-8h5"/></symbol>
@@ -40,16 +44,16 @@
 <a class="skip-link" href="#main">İçeriğe geç</a>
 <aside class="sidebar" id="sidebar">
   <a href="#overview" class="brand" aria-label="Garbage Collectors ana sayfa"><span class="brand-icon"><svg><use href="#i-bin"/></svg></span><span>Garbage<br><strong>Collectors<span class="brand-dot">.</span></strong></span></a>
-  <div class="workspace-badge"><span class="tiny-dot"></span> YEŞİL GELECEK <span>2026</span></div>
-  <div class="nav-caption">ÇALIŞMA ALANI</div>
+  <div class="workspace-badge"><span class="tiny-dot"></span> TRABZON <span>PİLOT</span></div>
+  <div class="nav-caption">OPERASYON YÖNETİMİ</div>
   <nav aria-label="Ana menü">
     <button class="nav-item active" data-view="overview"><svg><use href="#i-grid"/></svg>Genel bakış</button>
-    <button class="nav-item" data-view="route"><svg><use href="#i-route"/></svg>Rota planlama<span class="nav-new">YENİ</span></button>
+    <button class="nav-item" data-view="route"><svg><use href="#i-route"/></svg>Rota planlama</button>
     <button class="nav-item" data-view="health"><svg><use href="#i-pulse"/></svg>Sensör sağlığı<span class="nav-count" id="navAlertCount">0</span></button>
     <button class="nav-item" data-view="impact"><svg><use href="#i-leaf"/></svg>Etki analizi</button>
   </nav>
   <div class="sidebar-bottom">
-    <div class="purpose-card"><svg><use href="#i-leaf"/></svg><strong>Her sefer bir fark yaratır.</strong><p>İhtiyaç kadar topla.<br>Kaynakları daha iyi kullan.</p><span>YEŞİL GELECEK HACKATHONU</span></div>
+    <div class="purpose-card"><svg><use href="#i-leaf"/></svg><strong>Veriden temiz bir şehre.</strong><p>Canlı sensörler ve açıklanabilir toplama kararları tek ekranda.</p><span>YEŞİL GELECEK · 2026</span></div>
     <button class="nav-item" id="settingsButton"><svg><use href="#i-settings"/></svg>Operasyon ayarları</button>
     <div class="server-state"><span class="tiny-dot" id="connectionDot"></span><span id="connectionLabel">Bağlanıyor</span><small>YEREL MVP</small></div>
   </div>
@@ -61,13 +65,42 @@
   </header>
   <main id="main">
     <div id="connectionBanner" class="banner danger" hidden>Sunucuya ulaşılamıyor. Ekrandaki bilgiler son alınan veridir; yeniden bağlanılıyor.</div>
-    <div class="page-heading"><div><div class="eyebrow"><span class="tiny-dot"></span> KTÜ KANUNİ KAMPÜSÜ</div><h1 id="pageTitle">Şehrin ritmini yakala.</h1><p id="pageSubtitle">Kutuları izleyin. İhtiyacı görün. Seferinizi planlayın.</p></div><div class="heading-meta"><span class="badge outline">MVP / DEMO</span><span id="clockLabel">—</span></div></div>
+    <div class="page-heading"><div><div class="eyebrow"><span class="tiny-dot"></span> TRABZON / AKILLI ATIK YÖNETİMİ</div><h1 id="pageTitle">Trabzon operasyon merkezi</h1><p id="pageSubtitle">Kutuları izleyin. İhtiyacı görün. Seferinizi planlayın.</p></div><div class="heading-meta"><span class="badge outline">MVP / DEMO</span><span id="clockLabel">—</span></div></div>
     <section class="metrics" id="metrics" aria-label="Operasyon özeti"></section>
     <section class="map-workspace" id="mapWorkspace">
       <div class="map-card card">
-        <div class="card-heading map-heading"><div><h2>Bölge görünümü <span class="count-pill" id="mapCount">25 kutu</span></h2><p>Kanuni Kampüsü ve çevresi</p></div><button class="icon-button" id="fitMap" title="Tüm kutuları göster" aria-label="Haritayı bölgeye ortala"><svg><use href="#i-pin"/></svg></button></div>
+        <div class="card-heading map-heading"><div><h2>Bölge görünümü <span class="count-pill" id="mapCount">— kutu</span></h2><p>KTÜ Kanuni Kampüsü · Trabzon</p></div><button class="icon-button" id="fitMap" title="Tüm kutuları göster" aria-label="Haritayı bölgeye ortala"><svg><use href="#i-pin"/></svg></button></div>
         <div class="map-filters"><div class="segmented" role="group" aria-label="Veri kaynağı filtresi"><button data-source="all" class="active">Tümü</button><button data-source="live"><span class="live-dot"></span>Canlı sensör</button><button data-source="simulated">Simülasyon</button></div><select id="fillFilter" aria-label="Doluluk filtresi"><option value="all">Tüm doluluklar</option><option value="red">%80 ve üzeri</option><option value="yellow">%50–79</option><option value="green">%50 altı</option><option value="gray">Veri belirsiz</option></select></div>
-        <div class="map-container"><div class="scene-hud"><span class="scene-kicker">OPERASYON / 3D</span><strong>KANUNİ KAMPÜSÜ</strong><span id="sceneStatus">YEREL OSM ŞEHİR MODELİ</span></div><div class="scene-controls" role="group" aria-label="Harita kamera kontrolleri"><button data-camera="3d" aria-pressed="true">3D</button><button data-camera="2d" aria-pressed="false">Üstten</button><button data-camera="light" title="Işığı değiştir">◐ Işık</button><button data-camera="relief" aria-pressed="false">Arazi</button><button data-camera="tour" aria-pressed="false">▶ Uçuş</button><button data-camera="export">↓ PNG</button><button data-camera="fallback">2D yedek</button></div><div class="scene-coordinate"><span class="scene-live-dot"></span><span id="sceneStopCount">25 NOKTA · DOLULUK TAKİBİ</span><span>40.9916° N / 39.7723° E</span></div><div id="map" aria-label="Çöp kutuları ve toplama rotası haritası"></div><div class="map-notice" id="tileNotice" hidden>Harita zemini yüklenemedi. Noktalar yaklaşık konumlarında gösteriliyor.</div><div class="map-legend"><span><i class="green"></i>Düşük</span><span><i class="yellow"></i>Orta</span><span><i class="red"></i>Yüksek</span><span><i class="gray"></i>Belirsiz</span></div></div>
+        <div class="scene-toolbar">
+          <div class="basemap-switch" role="group" aria-label="Harita zemini">
+            <button data-basemap="satellite" aria-pressed="true"><span class="layer-thumb satellite-thumb"></span>Uydu</button>
+            <button data-basemap="city" aria-pressed="false"><span class="layer-thumb city-thumb"></span>Şehir</button>
+            <button data-basemap="street" aria-pressed="false"><span class="layer-thumb street-thumb"></span>Yol</button>
+          </div>
+          <div class="scene-toolbar-actions"><select id="sceneRegion" aria-label="Harita bölgesi"><option value="campus">KTÜ / Kampüs</option><option value="meydan">Trabzon / Meydan</option><option value="kalkinma">Kalkınma</option><option value="trabzon">Trabzon geneli</option></select><label class="quality-control">Görüntü <select id="sceneQuality" aria-label="Görüntü kalitesi"><option value="auto">Otomatik</option><option value="eco">Ekonomik</option><option value="sharp">Keskin</option></select></label><button id="mapFullscreen" class="button" aria-label="Haritayı tam ekran aç veya kapat">⛶ <span>Tam ekran</span></button></div>
+        </div>
+        <div class="map-container">
+          <div class="scene-hud"><span class="scene-kicker">TRABZON / OPERASYON SAHASI</span><strong id="sceneLocation">KANUNİ KAMPÜSÜ</strong><span id="sceneStatus">UYDU GÖRÜNTÜSÜ · ESRI WORLD IMAGERY</span></div>
+          <div class="scene-controls" role="group" aria-label="Harita kamera kontrolleri">
+            <button class="dimension-toggle" data-camera="dimension" aria-pressed="true" aria-label="3D görünüm" title="2D görünüme geç"><span class="dimension-cube" aria-hidden="true"><i></i><i></i><i></i></span><strong id="dimensionLabel">3D</strong><span class="dimension-track"><i></i></span></button>
+            <button data-camera="buildings" aria-pressed="true"><svg><use href="#i-buildings"/></svg>Binalar</button>
+            <button data-camera="relief" aria-pressed="false">Arazi</button><button data-camera="heat" aria-pressed="false">Doluluk ısısı</button><button data-camera="tour" aria-pressed="false">▶ Uçuş</button>
+            <details class="map-more"><summary aria-label="Diğer harita seçenekleri">•••</summary><div><button data-camera="motion" aria-pressed="false" title="Bu sekmede kamera animasyonlarını aç veya kapat">Sunum animasyonları</button><button data-camera="light" aria-pressed="false">Işığı değiştir</button><button data-camera="export">PNG indir</button><button data-camera="fallback">2D yedek</button></div></details>
+          </div>
+          <div class="map-rotation" role="group" aria-label="Haritayı döndür"><button data-camera="rotate-left" aria-label="Haritayı sola döndür">↶</button><button data-camera="north" aria-label="Haritayı kuzeye çevir" title="Kuzeye dön"><svg id="mapCompass" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 6 19-6-4-6 4Z" fill="currentColor"/></svg><small>K</small></button><button data-camera="rotate-right" aria-label="Haritayı sağa döndür">↷</button></div>
+          <div class="scene-coordinate"><span class="scene-live-dot"></span><span id="sceneStopCount">DOLULUK TAKİBİ</span><span id="sceneLoad">Harita yükleniyor</span><span id="scenePerformance">OTOMATİK GÖRÜNTÜ</span></div>
+          <div id="map" aria-label="Çöp kutuları ve toplama rotası haritası"></div>
+          <div class="map-notice" id="tileNotice" role="status" aria-live="polite" hidden><span id="noticeTimebar" class="notice-timebar"></span><svg><use href="#i-info"/></svg><span id="noticeText"></span><button id="noticeClose" aria-label="Harita bildirimini kapat">×</button></div>
+          <div id="demandKey" class="demand-key" hidden><i></i>Anlık doluluk yoğunluğu · tahmin değildir</div>
+          <div class="map-legend"><span><i class="green"></i>Düşük</span><span><i class="yellow"></i>Orta</span><span><i class="red"></i>Yüksek</span><span><i class="gray"></i>Belirsiz</span></div>
+          <section id="driverCockpit" class="driver-cockpit" role="dialog" aria-modal="true" aria-label="Şoför rota takip ekranı" tabindex="-1" hidden>
+            <div class="drive-top"><div class="drive-brand"><svg><use href="#i-truck"/></svg><span>GC <small>ŞOFÖR KOKPİTİ</small></span></div><span id="driveMode">SEFER ÖNİZLEMESİ</span><button data-drive="close" aria-label="Şoför modundan çık">✕ <span>Çıkış</span></button></div>
+            <div class="drive-instruction"><span class="drive-direction" id="driverDirection">◎</span><div><span id="driverOrdinal">SONRAKİ DURAK</span><strong id="driverTarget">—</strong><span id="driverManeuver"></span><small id="driverRoad"></small></div><b id="driverDistance">—</b></div>
+            <div class="drive-follow"><button data-drive="follow" aria-pressed="true">◎ Aracı takip et</button></div>
+            <div class="drive-bottom"><div class="drive-stats"><div><span>Kalan yol</span><strong id="driverRemaining">—</strong></div><div><span>GPS hızı</span><strong id="driverSpeed">—</strong></div><div class="drive-accuracy" id="driverAccuracy">Demo önizlemesi</div></div><progress id="driverProgress" max="100" value="0" aria-label="Rota ilerlemesi"></progress><div class="drive-actions"><button data-drive="demo" aria-pressed="false">▶ Demo sürüşü</button><button data-drive="pause">Ⅱ Duraklat</button><button data-drive="gps" aria-pressed="false">◎ GPS başlat</button><span></span><button data-drive="previous" aria-label="Önceki durağı incele">←</button><button data-drive="next" aria-label="Sonraki durağı incele">Sonraki durak →</button></div><p id="driverMessage">Durak geçişleri önizlemedir; toplama kaydı oluşturmaz. GPS, izin verdiğinizde yalnız bu cihazda işlenir.</p></div>
+          </section>
+        </div>
+        <div class="driver-launchbar"><div><svg><use href="#i-truck"/></svg><span><strong>Şoför çalışma alanı</strong><small>Rota takibi · sıradaki durak · tam ekran kokpit</small></span></div><button class="button button-primary" id="driverLaunch" disabled>Şoför modunu aç ↗</button></div>
         <div class="map-footnote"><svg><use href="#i-info"/></svg>Konumlar demo amaçlıdır. Doluluk, sensör seviyesinden hesaplanan yaklaşık değerdir.</div>
       </div>
       <aside class="queue-card card" id="queuePanel"><div class="card-heading"><div><h2>Toplama öncelikleri</h2><p id="queueSubtitle">Planlama önerileri</p></div><span class="soft-icon amber"><svg><use href="#i-bolt"/></svg></span></div><label class="search-box"><svg><use href="#i-search"/></svg><input id="binSearch" type="search" placeholder="Kutu veya bölge ara" aria-label="Kutu ara"></label><div class="queue-tabs"><button class="active" data-queue="priority">Öncelikli <span id="priorityCount">0</span></button><button data-queue="all">Tüm kutular</button></div><div id="binList" class="bin-list"></div><div class="queue-footer"><span>Kararlar açıklanabilir kurallara dayanır.</span><button class="text-button" data-view="route">Sefer planla <svg><use href="#i-arrow"/></svg></button></div></aside>
