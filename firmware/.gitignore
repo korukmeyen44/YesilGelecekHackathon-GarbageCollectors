@@ -8,6 +8,7 @@ __pycache__/
 *.sqlite3-wal
 include/gateway_config.local.h
 config/calibration.local.json
+config/calibration.local.json.*
 config/network.local.json
 config/network.local.json.tmp
 include/gateway_config.local.h.tmp
