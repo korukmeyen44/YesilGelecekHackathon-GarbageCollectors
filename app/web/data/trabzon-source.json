@@ -1,0 +1,23 @@
+{
+  "sources": [
+    {
+      "area": "Ortahisar / Meydan",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=39.712,40.996,39.737,41.013"
+    },
+    {
+      "area": "Kalkınma / Üniversite",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=39.737,40.986,39.765,41.005"
+    },
+    {
+      "area": "KTÜ / Konaklar",
+      "url": "https://api.openstreetmap.org/api/0.6/map?bbox=39.765,40.983,39.793,41.005"
+    }
+  ],
+  "fetched_at": "2026-10-30T22:35:55.119733+00:00",
+  "license": "ODbL 1.0",
+  "copyright": "https://www.openstreetmap.org/copyright",
+  "building_count": 7916,
+  "campus_buildings_excluded": true,
+  "estimated_heights": 7910,
+  "heights": "OSM height, otherwise levels x 3m, otherwise 12m estimate. Not photogrammetry."
+}
