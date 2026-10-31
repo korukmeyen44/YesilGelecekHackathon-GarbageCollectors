@@ -73,39 +73,73 @@ class GCMapScene {
     if(value==='satellite'&&!this.map.getSource('satellite')){this.map.addSource('satellite',{type:'raster',tiles:[GCMapScene.imagery],tileSize:256,maxzoom:19,attribution:'Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community'});this.map.addLayer({id:'satellite',type:'raster',source:'satellite',paint:{'raster-fade-duration':150,'raster-saturation':-.1}},'land');}
     if(value==='street'&&!this.map.getSource('street')){this.map.addSource('street',{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,maxzoom:19,attribution:'© OpenStreetMap contributors'});this.map.addLayer({id:'street',type:'raster',source:'street',paint:{'raster-saturation':-.5}},'land');}
     for(const layer of ['satellite','street'])if(this.map.getLayer(layer))this.map.setLayoutProperty(layer,'visibility',value===layer?'visible':'none');for(const layer of ['land','roads','road-border'])this.map.setLayoutProperty(layer,'visibility',value==='city'?'visible':'none');
-    this.applyBuildings();
+    this.applyBuildings();this.applyLighting();
     this.map.setPaintProperty('buildings','fill-extrusion-opacity',.96);document.querySelector('#sceneStatus').textContent={satellite:'UYDU GÖRÜNTÜSÜ · ESRI WORLD IMAGERY',city:'YEREL 3D ŞEHİR · LOW POLY',street:'YOL HARİTASI + OSM BİNALAR'}[value];
+  }
+  setLighting(phase){
+    if(!['day','night','twilight'].includes(phase))phase='day';
+    if(this.lightPhase===phase)return;this.lightPhase=phase;this.night=phase==='night';
+    document.querySelector('.map-container').dataset.light=phase;
+    if(this.leaflet){this.fallbackTile?.getContainer()?.classList.toggle('night-tiles',this.night);return;}
+    this.applyLighting();
+  }
+  setDriverView(active){
+    for(const layer of ['buildings','trabzon-buildings'])if(this.map?.getLayer(layer))this.map.setPaintProperty(layer,'fill-extrusion-opacity',active?.62:layer==='buildings'?.96:.85);
+  }
+  applyLighting(){
+    if(!this.ready||!this.map)return;
+    const night=this.lightPhase==='night',warm=this.lightPhase==='twilight';
+    this.map.setLight({anchor:'map',color:night?'#a9ceff':warm?'#ffcca0':'#fff9eb',intensity:night?.38:.5,position:[1.5,210,night?80:warm?75:35]});
+    const paint=(layer,property,value)=>{if(this.map.getLayer(layer))this.map.setPaintProperty(layer,property,value);};
+    paint('ground','background-color',night?'#0c1e28':warm?'#d8d4c2':'#dce7df');
+    paint('land','fill-color',night?'#183b37':warm?'#b5c7a3':'#b8d6ba');
+    paint('roads','line-color',night?'#78949a':warm?'#f3e0bd':'#faf9ee');
+    paint('road-border','line-color',night?'#263f49':'#adc1be');
+    for(const layer of ['buildings','trabzon-buildings'])paint(layer,'fill-extrusion-color',night?['interpolate',['linear'],['get','height'],3,'#294c5a',18,'#567a86',50,'#3a6377']:warm?['interpolate',['linear'],['get','height'],3,'#acb6ac',18,'#eed9bc',50,'#afaa9a']:['interpolate',['linear'],['get','height'],3,'#b6c7c9',18,'#d9e1dc',50,'#91aaaf']);
+    for(const layer of ['satellite','street']){
+      paint(layer,'raster-brightness-max',night?.4:warm?.85:1);
+      paint(layer,'raster-saturation',night?-.7:warm?-.2:-.1);
+    }
   }
   render(payload){
     if(!payload)return;this.payload=payload;this.driver?.sync(payload);if(this.leaflet)return this.renderFallback(payload);if(!this.ready)return;
     const {bins,plan,depot,selected}=payload,numbers=new Map((plan?.stops||[]).map((s,i)=>[s.id,i+1])),visible=new Set();
     for(const b of bins){
       visible.add(b.id);let entry=this.markers.get(b.id);if(!entry){const element=document.createElement('button');element.type='button';element.className='scene-pin';element.addEventListener('click',e=>{e.stopPropagation();this.selectBin(b.id);});const marker=new maplibregl.Marker({element,anchor:'center',pitchAlignment:'viewport',rotationAlignment:'viewport',subpixelPositioning:true}).setLngLat([b.lng,b.lat]).addTo(this.map);entry={element,marker};this.markers.set(b.id,entry);}
-      const location=`${b.lng},${b.lat}`;if(entry.location!==location){entry.marker.setLngLat([b.lng,b.lat]);entry.location=location;}entry.element.style.setProperty('--pin-color',GCMapScene.colors[b.color]||GCMapScene.colors.gray);entry.element.classList.toggle('is-selected',selected===b.id);entry.element.classList.toggle('is-live',b.source==='live');entry.element.classList.toggle('is-muted',!!plan&&!numbers.has(b.id));
+      const location=`${b.lng},${b.lat}`;if(entry.location!==location){entry.marker.setLngLat([b.lng,b.lat]);entry.location=location;}entry.element.style.setProperty('--pin-color',GCMapScene.colors[b.usable===false?'gray':b.color]||GCMapScene.colors.gray);entry.element.classList.toggle('is-selected',selected===b.id);entry.element.classList.toggle('is-live',b.source==='live');entry.element.classList.toggle('is-muted',!!plan?.stops.length&&!numbers.has(b.id)&&(plan.scope==='demo'?b.source==='simulated':b.source==='live'));entry.element.classList.toggle('is-projected',!!b.projected&&b.projection_available);entry.element.classList.toggle('is-uncertain',b.usable===false);
       entry.element.dataset.lng=String(b.lng);entry.element.dataset.lat=String(b.lat);
       const label=b.fill_percent==null?'?':Math.round(b.fill_percent)+'',num=numbers.get(b.id),content=`<span class="pin-value">${label}</span>${num?`<span class="pin-order">${num}</span>`:''}<span class="pin-id">${b.id}${b.fast_filling?' ↗':''}</span>`;if(entry.element.innerHTML!==content)entry.element.innerHTML=content;
-      entry.element.title=`${b.name} · ${b.source==='live'?'Canlı sensör':'Simülasyon'} · ${b.fill_percent==null?'Belirsiz':b.fill_percent+'% dolu'}${num?' · Durak '+num:''}`;entry.element.setAttribute('aria-label',entry.element.title);
+      entry.element.title=`${b.name} · ${b.source==='live'?'Canlı sensör':'Simülasyon'} · ${b.projected?`+${b.projection_hours} sa tahmini · `:''}${b.fill_percent==null?'Belirsiz':b.fill_percent+'% dolu'}${b.usable===false?' · Güncel güvenilir ölçüm yok':''}${num?' · Durak '+num:''}`;entry.element.setAttribute('aria-label',entry.element.title);
     }
     for(const [id,entry]of this.markers)if(!visible.has(id)){entry.marker.remove();this.markers.delete(id);}
-    this.setData('demand',{type:'FeatureCollection',features:bins.filter(b=>b.fill_percent!=null).map(b=>({type:'Feature',properties:{fill:b.fill_percent},geometry:{type:'Point',coordinates:[b.lng,b.lat]}}))});
+    this.setData('demand',{type:'FeatureCollection',features:bins.filter(b=>b.fill_percent!=null&&b.usable!==false).map(b=>({type:'Feature',properties:{fill:b.fill_percent},geometry:{type:'Point',coordinates:[b.lng,b.lat]}}))});
     this.setData('route',plan?.stops.length&&plan.geometry.length>1?{type:'Feature',properties:{},geometry:{type:'LineString',coordinates:plan.geometry.map(p=>[p[1],p[0]])}}:{type:'FeatureCollection',features:[]});
     const dashed=!!plan&&!plan.road_geometry;if(this.dashed!==dashed){for(const layer of ['route-casing','route-line','route-core'])this.map.setPaintProperty(layer,'line-dasharray',dashed?[2,2]:[1,0]);this.dashed=dashed;}
     if(plan?.stops.length){if(!this.depotMarker){const element=document.createElement('div');element.className='scene-depot';element.innerHTML='⌂<small>DEPO</small>';this.depotMarker=new maplibregl.Marker({element,anchor:'bottom'}).setLngLat([depot.lng,depot.lat]).addTo(this.map);}}else{this.depotMarker?.remove();this.depotMarker=null;}
     if(plan?.stops.length&&this.fitted!==plan.id){this.fitted=plan.id;this.initialFit=true;this.fitBounds(plan.geometry);}
     else if(!this.initialFit&&bins.length){this.initialFit=true;this.fitBounds(bins.map(b=>[b.lat,b.lng]));}
-    document.querySelector('#sceneStopCount').textContent=plan?`${plan.stops.length} DURAK · ${plan.recommended.distance_km.toFixed(1)} KM · ${plan.road_geometry?'YOL AĞI':'YAKLAŞIK ÇİZGİ'}`:`${bins.length} NOKTA · DOLULUK TAKİBİ`;
+    document.querySelector('#sceneStopCount').textContent=payload.futureHours?`+${payload.futureHours} SAAT · TAHMİN · ÖLÇÜM DEĞİL`:plan?`${plan.stops.length} DURAK · ${plan.recommended.distance_km.toFixed(1)} KM · ${plan.road_geometry?'YOL AĞI':'YAKLAŞIK ÇİZGİ'}`:`${bins.length} NOKTA · DOLULUK TAKİBİ`;
+    document.querySelector('#demandKey').textContent=payload.futureHours?'Tahmini doluluk yoğunluğu · mevcut eğilim sürerse':'Anlık doluluk yoğunluğu · tahmin değildir';
     const drive=document.querySelector('#driverLaunch');if(drive){drive.disabled=!plan?.stops.length;drive.title=plan?.stops.length?'Planlanan seferi tam ekran aç':'Önce rota planlama bölümünde sefer oluşturun';}
   }
   setData(name,data){const signature=JSON.stringify(data);if(this.signatures[name]===signature)return;this.signatures[name]=signature;this.map.getSource(name).setData(data);}
   async selectBin(id){this.driver?.close();if(document.fullscreenElement)try{await document.exitFullscreen();}catch{}document.querySelector('.map-card').classList.remove('map-expanded');this.onSelect(id);}
   invalidateSize(){this.map?.resize();this.leaflet?.invalidateSize();}
-  fitBounds(latlngs,options={}){if(!latlngs?.length)return;if(this.leaflet){this.leaflet.fitBounds(latlngs,{padding:[35,35],maxZoom:17});return;}if(!this.ready)return;const bounds=new maplibregl.LngLatBounds();latlngs.forEach(p=>bounds.extend([p[1],p[0]]));this.map.fitBounds(bounds,{padding:typeof options.padding==='number'?options.padding:matchMedia('(max-width: 720px)').matches?45:85,maxZoom:16.8,pitch:this.mode==='3d'?48:0,bearing:this.mode==='3d'?-24:0,duration:this.motion?0:950});}
+  fitBounds(latlngs,options={}){
+    if(!latlngs?.length)return;
+    if(this.leaflet){this.leaflet.fitBounds(latlngs,{padding:[35,35],maxZoom:17});return;}
+    if(!this.ready)return;
+    const bounds=new maplibregl.LngLatBounds();latlngs.forEach(p=>bounds.extend([p[1],p[0]]));
+    const mobile=matchMedia('(max-width: 720px)').matches;
+    const padding=typeof options.padding==='number'?options.padding:mobile?45:{top:55,bottom:70,left:60,right:360};
+    this.map.fitBounds(bounds,{padding,maxZoom:16.8,pitch:this.mode==='3d'?48:0,bearing:this.mode==='3d'?-24:0,duration:this.motion?0:950});
+  }
   pressed(action,value){document.querySelector(`[data-camera="${action}"]`)?.setAttribute('aria-pressed',String(value));}
   applyBuildings(){
     if(this.ready&&this.map){this.map.setLayoutProperty('buildings','visibility',this.buildings?'visible':'none');
       if(this.buildings&&!this.map.getSource('trabzon-buildings')){const layer=JSON.parse(JSON.stringify(this.style.layers.find(l=>l.id==='buildings')));this.map.addSource('trabzon-buildings',{type:'geojson',data:'/data/trabzon-buildings.geojson',tolerance:1.5,maxzoom:16,attribution:'© OpenStreetMap contributors · ODbL'});layer.id='trabzon-buildings';layer.source='trabzon-buildings';layer.minzoom=14;this.map.addLayer(layer,'buildings');}
       if(this.map.getLayer('trabzon-buildings'))this.map.setLayoutProperty('trabzon-buildings','visibility',this.buildings?'visible':'none');
-    }this.pressed('buildings',this.buildings);
+    }this.pressed('buildings',this.buildings);this.applyLighting();
   }
   syncCameraControls(mode){this.mode=mode||(this.map.getPitch()<5?'2d':'3d');const button=document.querySelector('[data-camera="dimension"]');button?.setAttribute('aria-pressed',String(this.mode==='3d'));button?.setAttribute('title',this.mode==='3d'?'2D görünüme geç':'3D görünüme geç');document.querySelector('#dimensionLabel').textContent=this.mode==='3d'?'3D':'2D';}
   showRegion(region){

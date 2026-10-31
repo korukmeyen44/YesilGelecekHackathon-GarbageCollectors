@@ -1,0 +1,24 @@
+{
+  "id": "/",
+  "name": "Garbage Collectors · Sürücü",
+  "short_name": "GC Sürücü",
+  "description": "Trabzon akıllı atık yönetimi. Toplama rotanız, sıradaki durak ve canlı konum takibi tek ekranda.",
+  "lang": "tr",
+  "dir": "ltr",
+  "start_url": "/?launch=driver",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#0d202c",
+  "theme_color": "#0d202c",
+  "categories": ["navigation", "utilities", "productivity"],
+  "icons": [
+    {"src":"/icons/icon-192.png", "sizes":"192x192", "type":"image/png", "purpose":"any"},
+    {"src":"/icons/icon-512.png", "sizes":"512x512", "type":"image/png", "purpose":"any"},
+    {"src":"/icons/maskable-512.png", "sizes":"512x512", "type":"image/png", "purpose":"maskable"}
+  ],
+  "shortcuts": [
+    {"name":"Seferi başlat", "short_name":"Sefer", "url":"/?launch=driver#route", "icons":[{"src":"/icons/icon-192.png","sizes":"192x192"}]},
+    {"name":"Operasyon haritası", "short_name":"Harita", "url":"/#overview", "icons":[{"src":"/icons/icon-192.png","sizes":"192x192"}]}
+  ]
+}
