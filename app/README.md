@@ -21,8 +21,8 @@ backend'in hesapladığı rota korunur. Son sefer genel bakışta da görünür.
   döndürme veya haritadaki sağ/sol/kuzey düğmeleri. **Arazi:** isteğe bağlı Mapzen/AWS yükseklikleri.
 - **Bölge seçimi:** Kampüs, Meydan, Kalkınma ve Trabzon geneli için kamera konumları;
   harita bu sınırların dışına gezinmeyi engellemez.
-- **Doluluk ısısı:** yalnız bilinen güncel dolulukla ağırlıklandırılır. Zamana
-  bağlı yoğunluk analizi veya geleceğin tahmini değildir. Belirsiz ölçüm katılmaz.
+- **Isı haritası:** son 14 günün güvenilir geçmişinden hesaplanan dolma hızını
+  gösterir; anlık doluluk noktaları aynen korunur. Ayrıntılar: [Isı haritası yöntemi](HEATMAP.md).
 - **Uçuş:** plan duraklarını veya kutuları dolaşır. Sürükleme, sekmenin gizlenmesi
   ve tekrar basma durdurur. Varsayılan olarak azaltılmış hareket tercihine uyar.
   Diğer seçenekler → Sunum animasyonları bu sekmede kullanıcı tercihiyle hareketi açar.

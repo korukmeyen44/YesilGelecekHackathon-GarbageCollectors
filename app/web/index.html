@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/mission.css">
   <link rel="stylesheet" href="/experience.css">
   <script defer src="/future-model.js"></script>
+  <script defer src="/demand-model.js"></script>
   <script defer src="/pwa.js"></script>
   <script defer src="/vendor/leaflet.js"></script>
   <script defer src="/vendor/maplibre-gl.js"></script>
@@ -102,14 +103,21 @@
           <div class="scene-controls" role="group" aria-label="Harita kamera kontrolleri">
             <button class="dimension-toggle" data-camera="dimension" aria-pressed="true" aria-label="3D görünüm" title="2D görünüme geç"><span class="dimension-cube" aria-hidden="true"><i></i><i></i><i></i></span><strong id="dimensionLabel">3D</strong><span class="dimension-track"><i></i></span></button>
             <button data-camera="buildings" aria-pressed="true"><svg><use href="#i-buildings"/></svg>Binalar</button>
-            <button data-camera="relief" aria-pressed="false">Arazi</button><button data-camera="heat" aria-pressed="false">Doluluk ısısı</button><button data-camera="tour" aria-pressed="false">▶ Uçuş</button>
+            <button data-camera="relief" aria-pressed="false">Arazi</button><button data-camera="heat" aria-pressed="false" title="Geçmiş dolma hızına göre ek kapasite ihtiyacı">Isı haritası</button><button data-camera="tour" aria-pressed="false">▶ Uçuş</button>
             <details class="map-more"><summary aria-label="Diğer harita seçenekleri">•••</summary><div><button data-camera="motion" aria-pressed="false" title="Bu sekmede kamera animasyonlarını aç veya kapat">Sunum animasyonları</button><button data-camera="export">PNG indir</button><button data-camera="fallback">2D yedek</button></div></details>
           </div>
           <div class="map-rotation" role="group" aria-label="Haritayı döndür"><button data-camera="rotate-left" aria-label="Haritayı sola döndür">↶</button><button data-camera="north" aria-label="Haritayı kuzeye çevir" title="Kuzeye dön"><svg id="mapCompass" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 6 19-6-4-6 4Z" fill="currentColor"/></svg><small>K</small></button><button data-camera="rotate-right" aria-label="Haritayı sağa döndür">↷</button></div>
           <div class="scene-coordinate"><span class="scene-live-dot"></span><span id="sceneStopCount">DOLULUK TAKİBİ</span><span id="sceneLoad">Harita yükleniyor</span><span id="scenePerformance">OTOMATİK GÖRÜNTÜ</span></div>
           <div id="map" aria-label="Çöp kutuları ve toplama rotası haritası"></div>
           <div class="map-notice" id="tileNotice" role="status" aria-live="polite" hidden><span id="noticeTimebar" class="notice-timebar"></span><svg><use href="#i-info"/></svg><span id="noticeText"></span><button id="noticeClose" aria-label="Harita bildirimini kapat">×</button></div>
-          <div id="demandKey" class="demand-key" hidden><i></i>Anlık doluluk yoğunluğu · tahmin değildir</div>
+          <div id="demandKey" class="demand-key" hidden>
+            <strong>Ek kapasite ihtiyacı <span>SON 14 GÜN</span></strong>
+            <i class="demand-gradient" aria-hidden="true"></i>
+            <div class="demand-scale"><span>Düşük · 0</span><span>4</span><span>8+ · Yüksek</span></div>
+            <small>Geçmiş dolma hızı · yüzde puan / saat</small>
+            <p id="demandSummary" role="status"></p>
+            <details><summary>Nasıl okunur?</summary><p>Kırmızı: ek kutu veya daha sık toplama için öncelikli inceleme. Mor: gözlenen dolum baskısı düşük. Renksiz alan: yeterli gözlem yok.</p><p>180 m çevrede kapasiteyle ağırlıklı ortalama hız. Anlık doluluk, doluluk filtresi ve gelecek saati bu katmanı değiştirmez.</p><div id="demandLeaders"></div><p>Bu bir ihtiyaç göstergesidir; kesin kutu adedi değildir. Tam dolu bekleyen kutularda hız düşük tahmin edilebilir. Simülasyon saha kanıtı değildir.</p></details>
+          </div>
           <div class="map-legend"><span><i class="green"></i>Düşük</span><span><i class="yellow"></i>Orta</span><span><i class="red"></i>Yüksek</span><span><i class="gray"></i>Belirsiz</span></div>
           <section id="driverCockpit" class="driver-cockpit" role="dialog" aria-modal="true" aria-label="Şoför rota takip ekranı" tabindex="-1" hidden>
             <div class="drive-top"><div class="drive-brand"><svg><use href="#i-truck"/></svg><span>GC <small>ŞOFÖR KOKPİTİ</small></span></div><span id="driveMode">SEFER ÖNİZLEMESİ</span><button data-drive="close" aria-label="Şoför modundan çık">✕ <span>Çıkış</span></button></div>

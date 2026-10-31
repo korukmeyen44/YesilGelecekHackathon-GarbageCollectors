@@ -1,0 +1,28 @@
+const assert=require('node:assert/strict');
+const model=require('../web/demand-model.js');
+const future=require('../web/future-model.js');
+const bin=(id,rate,extra={})=>({id,lat:40.99,lng:39.77,capacity_l:770,fill_percent:10,
+  usable:true,forecast:{available:true,rate_pph:2},demand:{available:true,rate_pph:rate},...extra});
+const point=bin('S01',8);
+assert.equal(model.status([{id:'old-server-bin'}]).kind,'outdated','old backend must not be reported as missing history');
+assert.match(model.status([{id:'old-server-bin'}]).message,/Ctrl\+C/);
+assert.match(model.status([{id:'old-snapshot-bin'}],true).message,/Kayıtlı görünüm/);
+assert.equal(model.status([bin('new',null,{demand:{available:false}})]).kind,'insufficient');
+assert.equal(model.status([point]).kind,'ready');
+assert.equal(model.at(model.points([point]),40.99,39.77).rate,8);
+assert.equal(model.at(model.points(Array(20).fill(bin('S02',.7))),40.99,39.77).rate,.7,'more slow bins cannot fake fast filling');
+const mixed=model.at(model.points([bin('a',8),bin('b',0,{capacity_l:1540})]),40.99,39.77);
+assert.ok(Math.abs(mixed.rate-8/3)<1e-10,'area rate accounts for existing capacity');
+assert.equal(model.at(model.points([point]),41.1,39.77),null,'unobserved areas remain transparent');
+assert.deepEqual(model.color(0),[113,55,193]);assert.deepEqual(model.color(8),[226,54,54]);
+assert.deepEqual(model.color(80),model.color(8));
+assert.deepEqual(model.points([bin('unknown',null,{demand:{available:false}})]),[]);
+const surface=model.surface([point]), frozen=JSON.stringify(point);
+assert.ok(surface.width<=320&&surface.height<=320);
+assert.ok(surface.pixels.some((v,i)=>i%4===3&&v>0));
+assert.deepEqual(model.surface([future.project(point,24)]),surface,'future lens leaves history and geographic placement identical');
+assert.deepEqual(model.surface([{...point,fill_percent:99,usable:false,color:'red'}]),surface,'current fill and status cannot recolor history');
+assert.equal(model.surface([]),null);assert.equal(JSON.stringify(point),frozen);
+assert.ok(surface.coordinates[0][0]<point.lng&&surface.coordinates[1][0]>point.lng);
+assert.ok(surface.coordinates[0][1]>point.lat&&surface.coordinates[2][1]<point.lat);
+console.log('PASS historical demand: capacity normalization, fixed palette, missing data, projection independence and geographic bounds');

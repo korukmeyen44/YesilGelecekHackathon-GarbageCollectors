@@ -23,6 +23,7 @@ from collector import Store, IdentityConflict, ValidationError, load_calibration
 from app.domain import DEPOT, decorate, validate_settings
 from app.routing import Roads, plan_route
 from app.storage import Operations
+from app.demand import historical_demand
 
 
 class Application:
@@ -36,6 +37,7 @@ class Application:
         db.parent.mkdir(parents=True, exist_ok=True)
         self.live = Store(db, load_calibration(calibration_path))
         self.roads = Roads(self.ops.db, roads_enabled)
+        self.demand_cache = {}
 
     def close(self):
         self.live.close()
@@ -111,6 +113,8 @@ class Application:
 
     def dashboard(self):
         bins = self.bins()
+        for b in bins:
+            b["demand"] = self.demand_for(b)
         plans = {}
         recent = []
         for scope in ("demo", "live"):
@@ -143,12 +147,46 @@ class Application:
         b = next((b for b in self.bins() if b["id"] == bin_id), None)
         if b is None:
             raise KeyError("Kutu bulunamadı.")
+        b["demand"] = self.demand_for(b)
         history = self.ops.history(bin_id, b["clock"]-48*3600) if b["source"] == "simulated" else self.live_history(b["node_id"], b["clock"]-48*3600)
         # Keep the last sample of each 10-minute bucket for browser charts.
         buckets = {int(stamp//600): (stamp, fill) for stamp, fill in history}
         b["history"] = list(buckets.values())
         b["events"] = [dict(r) for r in self.ops.db.execute("SELECT ts,kind,source,detail FROM events WHERE bin_id=? ORDER BY ts DESC LIMIT 8", (bin_id,))]
         return b
+
+    def demand_for(self, b):
+        # Historical analysis is cached; map gestures/time projections never query history.
+        simulated = b["source"] == "simulated"
+        key = ((b["clock"], self.ops.db.total_changes) if simulated else
+               (int(b["clock"] // 300), self.live.calibration["calibration_id"]))
+        cached = self.demand_cache.get(b["id"])
+        if cached and cached[0] == key:
+            return cached[1]
+        since = b["clock"] - 14 * 86400
+        if simulated:
+            rows = self.ops.db.execute("""SELECT MAX(ts), AVG(CASE WHEN quality='ok' THEN fill END)
+                FROM samples WHERE bin_id=? AND ts BETWEEN ? AND ?
+                GROUP BY CAST(ts/900 AS INTEGER) ORDER BY MAX(ts)""",
+                (b["id"], since, b["clock"])).fetchall()
+        else:
+            # Aggregate in SQLite rather than transferring fourteen days of 5-second packets.
+            with self.live.lock:
+                rows = self.live.db.execute("""SELECT MAX(observed_at), AVG(CASE
+                    WHEN json_extract(result_json,'$.measurement_quality')='ok'
+                    THEN json_extract(result_json,'$.fill_percent') END)
+                    FROM telemetry WHERE node_id=? AND observed_at BETWEEN ? AND ?
+                    AND json_extract(payload_json,'$.source')='rf'
+                    AND json_extract(result_json,'$.calibration_id')=?
+                    AND COALESCE(json_extract(result_json,'$.out_of_order'),0)=0
+                    GROUP BY CAST(observed_at/900 AS INTEGER) ORDER BY MAX(observed_at)""",
+                    (b["node_id"], since, b["clock"], self.live.calibration["calibration_id"])).fetchall()
+        collections = [r[0] for r in self.ops.db.execute(
+            "SELECT ts FROM events WHERE bin_id=? AND kind='collection' AND ts BETWEEN ? AND ?",
+            (b["id"], since, b["clock"]))]
+        value = historical_demand(rows, b["clock"], collections)
+        self.demand_cache[b["id"]] = (key, value)
+        return value
 
     def action(self, path, body):
         if not isinstance(body, dict):
