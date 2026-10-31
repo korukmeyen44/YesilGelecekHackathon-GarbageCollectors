@@ -85,20 +85,47 @@ class Roads:
                 "notice": error + " Kuş uçuşu mesafe ve varsayılan hız kullanılır; çizgiler sürüş güzergâhı değildir."}
 
     def geometry(self, points, order, mode):
+        self.last_maneuvers = []
         fallback = [[points[i]["lat"], points[i]["lng"]] for i in order]
         if mode != "road" or len(order) <= 2:
             return fallback, False
         coords = ";".join(f"{points[i]['lng']:.6f},{points[i]['lat']:.6f}" for i in order)
-        key = "route:" + hashlib.sha256(coords.encode()).hexdigest()
+        key = "route-v2:" + hashlib.sha256(coords.encode()).hexdigest()
         row = self.db.execute("SELECT value FROM road_cache WHERE key=?", (key,)).fetchone()
         if row:
-            return json.loads(row[0]), True
+            cached = json.loads(row[0])
+            self.last_maneuvers = cached["maneuvers"]
+            return cached["line"], True
         if self.enabled:
             try:
-                result = self.fetch("route/v1/driving/"+coords+"?overview=full&geometries=geojson&steps=false")
-                line = [[lat, lng] for lng, lat in result["routes"][0]["geometry"]["coordinates"]]
+                result = self.fetch("route/v1/driving/"+coords+"?overview=full&geometries=geojson&steps=true")
+                route = result["routes"][0]
+                coordinates = route["geometry"]["coordinates"]
+                if len(coordinates) < 2 or any(
+                    len(p) != 2 or any(type(n) not in (int, float) or not math.isfinite(n) for n in p)
+                    or not -180 <= p[0] <= 180 or not -90 <= p[1] <= 90 for p in coordinates
+                ):
+                    raise ValueError("Geçersiz yol geometrisi.")
+                line = [[lat, lng] for lng, lat in coordinates]
+                maneuvers, traveled = [], 0.0
+                for leg_index, leg in enumerate(route.get("legs", [])):
+                    for step in leg.get("steps", []):
+                        maneuver = step.get("maneuver", {})
+                        location = maneuver.get("location", [])
+                        distance = step.get("distance", 0)
+                        if type(distance) not in (int, float) or not math.isfinite(distance) or distance < 0:
+                            raise ValueError("Geçersiz manevra mesafesi.")
+                        if len(location) == 2 and all(type(n) in (int, float) and math.isfinite(n) for n in location):
+                            maneuvers.append({"type": str(maneuver.get("type", "continue"))[:50],
+                                              "modifier": str(maneuver.get("modifier", "straight"))[:50],
+                                              "exit": maneuver.get("exit") if type(maneuver.get("exit")) is int else None,
+                                              "name": str(step.get("name", ""))[:180],
+                                              "location": location, "distance_from_start": round(traveled, 2),
+                                              "leg_index": leg_index})
+                        traveled += distance
+                self.last_maneuvers = maneuvers
                 with self.db:
-                    self.db.execute("INSERT OR REPLACE INTO road_cache VALUES (?,?)", (key, json.dumps(line)))
+                    self.db.execute("INSERT OR REPLACE INTO road_cache VALUES (?,?)", (key, json.dumps({"line": line, "maneuvers": maneuvers})))
                 return line, True
             except (OSError, ValueError, KeyError, TypeError, IndexError):
                 pass
@@ -159,6 +186,7 @@ def plan_route(bins, settings, roads, online=True):
     risks = [{"id": b["id"], "reason": "Bu sefer dışında; sonraki ziyaretten önce toplama eşiği riski var."}
              for b in all_bins if b["automatic_candidate"] and b["id"] not in selected_ids]
     return {"stops": stops, "geometry": line, "road_geometry": road_geometry,
+            "maneuvers": getattr(roads, "last_maneuvers", []) if road_geometry else [],
             "baseline_geometry": [[points[i]["lat"], points[i]["lng"]] for i in baseline_order],
             "recommended": recommended, "baseline": baseline, "same_stops_fixed": fixed,
             "ordering_minutes_saved": round(fixed["minutes"]-recommended["minutes"], 2),
